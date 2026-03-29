@@ -1,0 +1,48 @@
+{
+  "name": "holobro",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "HoloBro — Tauri + Holochain browser shell (bookmarks, chat, embedded WebView2, network tools)",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ta10101/Holobro.git"
+  },
+  "bugs": {
+    "url": "https://github.com/ta10101/Holobro/issues"
+  },
+  "homepage": "https://github.com/ta10101/Holobro#readme",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc && vite build",
+    "preview": "vite preview",
+    "tauri": "tauri",
+    "build:desktop": "tauri build",
+    "build:zomes": "wsl bash scripts/wsl-build-zomes.sh",
+    "build:zomes:wsl": "bash scripts/wsl-build-zomes.sh",
+    "pack:dna": "wsl bash scripts/wsl-pack-dna.sh",
+    "pack:happ": "wsl bash scripts/wsl-pack-happ.sh",
+    "pack:all": "npm run build:zomes && npm run pack:dna && npm run pack:happ",
+    "check:wsl": "wsl bash scripts/check-wsl-toolchain.sh",
+    "lint": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "@holochain/client": "0.20.4-rc.0",
+    "@tauri-apps/api": "^2",
+    "@tauri-apps/plugin-opener": "^2",
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0",
+    "zustand": "^5.0.12"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2",
+    "@types/react": "^19.1.8",
+    "@types/react-dom": "^19.1.6",
+    "@vitejs/plugin-react": "^4.6.0",
+    "typescript": "~5.8.3",
+    "vite": "^7.0.4",
+    "vitest": "^3.2.4"
+  }
+}
