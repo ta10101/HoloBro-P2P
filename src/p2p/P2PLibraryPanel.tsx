@@ -108,7 +108,7 @@ export function P2PLibraryPanel({ hc, sharedLinks, sharedPages, demoSharedLinks,
                   {l.description && <span className="muted">{l.description}</span>}
                   {l.tags && <span className="mono muted">{l.tags}</span>}
                   <span className="muted">{new Date(l.shared_at_ms).toLocaleString()}</span>
-                  {'author' in l && l.author && (l.author as number[]).length > 0 && (
+                  {'author' in l && l.author && (l.author as unknown as number[]).length > 0 && (
                     <span className="mono muted" title="Shared by peer">
                       {encodeHashToBase64(l.author).slice(0, 12)}...
                     </span>

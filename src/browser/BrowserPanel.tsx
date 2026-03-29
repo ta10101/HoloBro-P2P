@@ -207,7 +207,7 @@ export type BrowserPanelProps = {
   fetchBusy: boolean
   active: boolean
   /** Holochain client for DHT-first URL lookups. */
-  hcClient?: import('@holochain/client').AppWebsocket | null
+  _hcClient?: import('@holochain/client').AppWebsocket | null
 }
 
 export function BrowserPanel({
@@ -224,7 +224,6 @@ export function BrowserPanel({
   fetchErr,
   fetchBusy,
   active,
-  hcClient,
 }: BrowserPanelProps) {
   const openInFlightRef = useRef(false)
   const queuedSettingsRef = useRef<BrowserSettings | null>(null)
