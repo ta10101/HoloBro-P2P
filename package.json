@@ -2,28 +2,36 @@
   "name": "holobro",
   "private": true,
   "version": "0.1.0",
+  "engines": {
+    "node": ">=20"
+  },
   "type": "module",
   "description": "HoloBro — Tauri + Holochain browser shell (bookmarks, chat, embedded WebView2, network tools)",
   "repository": {
     "type": "git",
-    "url": "https://github.com/ta10101/Holobro.git"
+    "url": "https://github.com/ta10101/HoloBro-P2P.git"
   },
   "bugs": {
-    "url": "https://github.com/ta10101/Holobro/issues"
+    "url": "https://github.com/ta10101/HoloBro-P2P/issues"
   },
-  "homepage": "https://github.com/ta10101/Holobro#readme",
+  "homepage": "https://github.com/ta10101/HoloBro-P2P#readme",
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
     "preview": "vite preview",
     "tauri": "tauri",
     "build:desktop": "tauri build",
+    "build:desktop:lightweight": "cross-env VITE_HOLOBRO_TIER=lightweight node scripts/tauri-build-tier.mjs",
+    "build:desktop:standard": "cross-env VITE_HOLOBRO_TIER=standard node scripts/tauri-build-tier.mjs",
+    "build:desktop:full": "cross-env VITE_HOLOBRO_TIER=full node scripts/tauri-build-tier.mjs",
     "build:zomes": "wsl bash scripts/wsl-build-zomes.sh",
     "build:zomes:wsl": "bash scripts/wsl-build-zomes.sh",
     "pack:dna": "wsl bash scripts/wsl-pack-dna.sh",
     "pack:happ": "wsl bash scripts/wsl-pack-happ.sh",
     "pack:all": "npm run build:zomes && npm run pack:dna && npm run pack:happ",
     "check:wsl": "wsl bash scripts/check-wsl-toolchain.sh",
+    "cargo-check:docker": "docker build -f docker/rust-check.Dockerfile -t holobro-rust-check .",
+    "fetch:sidecars": "node scripts/fetch-holochain-sidecars.mjs",
     "lint": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest"
@@ -37,6 +45,7 @@
     "zustand": "^5.0.12"
   },
   "devDependencies": {
+    "cross-env": "^7.0.3",
     "@tauri-apps/cli": "^2",
     "@types/react": "^19.1.8",
     "@types/react-dom": "^19.1.6",

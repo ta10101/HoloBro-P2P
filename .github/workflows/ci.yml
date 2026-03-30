@@ -7,6 +7,7 @@ on:
     branches: [main, master]
 
 jobs:
+  # TypeScript / Vite (Linux only — output is platform-independent).
   check:
     runs-on: ubuntu-latest
     steps:
@@ -18,3 +19,64 @@ jobs:
       - run: npm ci
       - run: npm run lint
       - run: npm test
+
+  build-tiers:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        tier: [development, lightweight, standard, full]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+        env:
+          VITE_HOLOBRO_TIER: ${{ matrix.tier }}
+
+  # Native Rust + Tauri compile check on all desktop targets (matches how releases build).
+  desktop-check:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+          - os: windows-latest
+          - os: macos-latest
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Linux — Tauri build dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential \
+            pkg-config \
+            libssl-dev \
+            libwebkit2gtk-4.1-dev \
+            libgtk-3-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            patchelf
+
+      - run: npm ci
+      - name: Fetch Holochain sidecars (same as release; catches triple/manifest drift)
+        run: node scripts/fetch-holochain-sidecars.mjs
+
+      - name: Frontend build (embeds env for Tauri context)
+        run: npm run build
+
+      - name: Compile-check holobro crate
+        run: cargo check -p holobro --locked

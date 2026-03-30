@@ -22,3 +22,4 @@ A global passphrase is simple but does not give per-peer or forward secrecy. The
 
 - [HOLOBRO_DATA_CLASSES.md](./HOLOBRO_DATA_CLASSES.md) — chat row and v1 implementation status.
 - [HOLOBRO_PRIVACY_OPERATORS.md](./HOLOBRO_PRIVACY_OPERATORS.md) — §3 chat, §6 backlog.
+- [HOLOBRO_RELEASE_AND_SECURITY_ROADMAP.md](./HOLOBRO_RELEASE_AND_SECURITY_ROADMAP.md) — dev vs retail tiers and forward-secrecy milestone framing.

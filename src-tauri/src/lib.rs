@@ -1,3 +1,5 @@
+mod holochain_sidecar;
+mod bundled_sandbox;
 mod network_tools;
 mod irc_tools;
 
@@ -951,6 +953,7 @@ async fn llm_chat(req: LlmChatRequest) -> Result<String, String> {
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_shell::init())
         .invoke_handler(tauri::generate_handler![
             content_webview_ensure,
             content_webview_set_bounds,
@@ -985,7 +988,11 @@ pub fn run() {
             irc_tools::irc_send,
             irc_tools::irc_join,
             irc_tools::irc_disconnect,
-            irc_tools::irc_poll
+            irc_tools::irc_poll,
+            holochain_sidecar::holochain_bundled_runtime_probe,
+            bundled_sandbox::bundled_sandbox_start,
+            bundled_sandbox::bundled_sandbox_stop,
+            bundled_sandbox::bundled_sandbox_running
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

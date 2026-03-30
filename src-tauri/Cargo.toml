@@ -2,7 +2,7 @@
 name = "holobro"
 version = "0.1.0"
 description = "HoloBro — Tauri + Holochain browser shell"
-authors = ["you"]
+authors = ["HoloBro contributors"]
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
@@ -30,6 +30,7 @@ hostname = "0.4"
 hickory-resolver = { version = "0.24", features = ["tokio-runtime", "system-config"] }
 native-tls = "0.2"
 tokio-native-tls = "0.3"
+tauri-plugin-shell = "2"
 
 [features]
 default = ["custom-protocol"]

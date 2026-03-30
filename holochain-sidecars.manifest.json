@@ -1,0 +1,18 @@
+{
+  "$comment": "Third-party prebuilts from holochain-open-dev/holochain-prebuilt-binaries. HoloBro uses @holochain/client 0.20.x — these binaries (Holochain 0.2.x) may NOT match your DNA until you bump client + zomes together. Prefer `pack:happ` + matching toolchain before shipping.",
+  "releaseTag": "0.2.4",
+  "baseUrl": "https://github.com/holochain-open-dev/holochain-prebuilt-binaries/releases/download/0.2.4",
+  "versions": {
+    "holochain": "0.2.4",
+    "lairKeystore": "0.3.0",
+    "hc": "0.2.4"
+  },
+  "tripleAliases": {
+    "aarch64-apple-darwin": "aarch-apple-darwin"
+  },
+  "assetTemplates": {
+    "holochain": "holochain-v{holochain}-{triple}",
+    "lair-keystore": "lair-keystore-v{lairKeystore}-{triple}",
+    "hc": "hc-v{hc}-{triple}"
+  }
+}

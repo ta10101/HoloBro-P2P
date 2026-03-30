@@ -13,6 +13,7 @@ import { Inspector, MiniChatPopup } from './design-panels';
 import { AgentHubPanel } from './app/lazyPanels';
 import { WandererPanel } from './design-panels';
 import { HolochainProvider, useHolochain } from './providers/HolochainProvider';
+import { WelcomeSafetyModal } from './components/WelcomeSafetyModal';
 import { TerminalMiniDock } from './terminal/TerminalMiniDock';
 import { DependencyCornerDock } from './network/DependencyCornerDock';
 import { HoloBroWanderer } from './components/HoloBroWanderer';
@@ -210,43 +211,6 @@ const PANELS: Record<PanelId, React.ReactNode> = {
   wanderer:  <WandererPanel />,
 };
 
-// ── First-run onboarding banner ─────────────────────────────
-const FirstRunBanner: React.FC = () => {
-  const dismissed = useUIStore((s) => s.firstRunDismissed);
-  const dismiss = useUIStore((s) => s.dismissFirstRun);
-  const setPanel = useUIStore((s) => s.setPanel);
-
-  if (dismissed) return null;
-
-  return (
-    <div style={{
-      background: 'linear-gradient(90deg, var(--accent) 0%, var(--accent2, #7b2ff7) 100%)',
-      color: '#fff', padding: '10px 16px', display: 'flex', alignItems: 'center', gap: 12,
-      fontFamily: 'var(--font-mono)', fontSize: 12, letterSpacing: 0.5,
-    }}>
-      <span style={{ fontSize: 18 }}>{'\u{1F680}'}</span>
-      <span style={{ flex: 1 }}>
-        <strong>Welcome to HoloBro!</strong> A decentralized P2P browser powered by Holochain + Tauri.
-        {' '}Start by exploring the <em>Agent Hub</em>, connect to <em>IRC</em>, or set up your <em>Holochain</em> node in the status bar below.
-      </span>
-      <button type="button" onClick={() => setPanel('agents')} style={{
-        background: 'rgba(255,255,255,0.2)', border: '1px solid rgba(255,255,255,0.4)',
-        color: '#fff', padding: '4px 10px', borderRadius: 4, cursor: 'pointer', fontSize: 11,
-        fontFamily: 'var(--font-mono)',
-      }}>
-        Agent Hub
-      </button>
-      <button type="button" onClick={dismiss} style={{
-        background: 'transparent', border: '1px solid rgba(255,255,255,0.4)',
-        color: '#fff', padding: '4px 10px', borderRadius: 4, cursor: 'pointer', fontSize: 11,
-        fontFamily: 'var(--font-mono)',
-      }}>
-        Dismiss
-      </button>
-    </div>
-  );
-};
-
 // ── App ───────────────────────────────────────────────────────
 const AppContent: React.FC = () => {
   const activePanel = useUIStore((s) => s.activePanel);
@@ -260,7 +224,7 @@ const AppContent: React.FC = () => {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', overflow: 'hidden' }}>
       <Header />
-      <FirstRunBanner />
+      <WelcomeSafetyModal />
 
       <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
         <Sidebar />

@@ -11,10 +11,17 @@ permissions:
 
 jobs:
   publish-tauri:
+    timeout-minutes: 120
     strategy:
       fail-fast: false
       matrix:
-        platform: [macos-latest, ubuntu-22.04, windows-latest]
+        include:
+          - platform: macos-latest
+            args: "--target universal-apple-darwin -c src-tauri/tauri.bundle-holochain.conf.json"
+          - platform: ubuntu-latest
+            args: "-c src-tauri/tauri.bundle-holochain.conf.json"
+          - platform: windows-latest
+            args: "-c src-tauri/tauri.bundle-holochain.conf.json"
 
     runs-on: ${{ matrix.platform }}
 
@@ -25,17 +32,27 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
-          node-version: 20
-          cache: "npm"
+          node-version: "22"
+          cache: npm
 
       - name: Install Rust stable
+        if: matrix.platform != 'macos-latest'
         uses: dtolnay/rust-toolchain@stable
 
-      - name: Install Linux dependencies
-        if: matrix.platform == 'ubuntu-22.04'
+      - name: Install Rust stable (macOS aarch64 + x64 for universal bundle)
+        if: matrix.platform == 'macos-latest'
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin,x86_64-apple-darwin
+
+      - name: Linux — Tauri build dependencies
+        if: matrix.platform == 'ubuntu-latest'
         run: |
           sudo apt-get update
-          sudo apt-get install -y \
+          sudo apt-get install -y --no-install-recommends \
+            build-essential \
+            pkg-config \
+            libssl-dev \
             libwebkit2gtk-4.1-dev \
             libgtk-3-dev \
             libayatana-appindicator3-dev \
@@ -45,13 +62,31 @@ jobs:
       - name: Install frontend dependencies
         run: npm ci
 
+      - name: Fetch Holochain / Lair / hc sidecars (see holochain-sidecars.manifest.json)
+        run: node scripts/fetch-holochain-sidecars.mjs
+
+      - name: Import Apple code signing certificates (optional)
+        if: ${{ matrix.platform == 'macos-latest' && secrets.MACOS_CERTIFICATE_BASE64 != '' && secrets.MACOS_CERTIFICATE_PASSWORD != '' }}
+        uses: apple-actions/import-codesign-certs@v3
+        with:
+          p12-file-base64: ${{ secrets.MACOS_CERTIFICATE_BASE64 }}
+          p12-password: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+
       - name: Build and publish bundles
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VITE_HOLOBRO_TIER: standard
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         with:
           tagName: ${{ github.ref_name }}
           releaseName: "HoloBro ${{ github.ref_name }}"
-          releaseBody: "Cross-platform desktop bundles for ${{ github.ref_name }}."
+          releaseBody: "Desktop bundles (Standard tier label) with fetched Holochain 0.2.x sidecars — verify compatibility with your DNA before production use. See [holochain-sidecars.manifest.json](https://github.com/${{ github.repository }}/blob/master/holochain-sidecars.manifest.json) and [Build from source](https://github.com/${{ github.repository }}/blob/master/README.md#build-from-source)."
           releaseDraft: false
           prerelease: false
+          args: ${{ matrix.args }}

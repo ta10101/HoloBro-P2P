@@ -2,7 +2,7 @@
 
 This document is the **agreed default** for what may touch Holochain, who can read it, and how it is protected. **Implementation must match this table** (or the table must be updated first).
 
-**Operator checklist (env vars, UI toggles, limits):** [HOLOBRO_PRIVACY_OPERATORS.md](./HOLOBRO_PRIVACY_OPERATORS.md).
+**Operator checklist (env vars, UI toggles, limits):** [HOLOBRO_PRIVACY_OPERATORS.md](./HOLOBRO_PRIVACY_OPERATORS.md). **User guide (keys, identity, examples):** [HOLOBRO_YOUR_KEYS.md](./HOLOBRO_YOUR_KEYS.md).
 
 **Principles (summary):** P2P-first, no product-owned content middleman; **opt-in sync** and **opt-in share**; **no plaintext on the network by default**; **trusted contacts** may receive wider sharing **only for categories the user enables**, still ciphertext by default for private payloads.
 

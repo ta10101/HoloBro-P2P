@@ -2,6 +2,7 @@
 // HoloBro — Constants & Seed Data
 // ============================================================
 import type { Agent, AgentGroup, AgentTemplate, NetworkStats, WandererConfig } from '../types';
+import { LLM_AGENT_PROVIDER_PRESETS } from '../lib/llmProviderCatalog';
 
 // ── Design tokens ────────────────────────────────────────────
 export const COLORS = {
@@ -20,69 +21,20 @@ export const COLORS = {
   dim:    '#1e293b',
 } as const;
 
-// ── Agent templates ──────────────────────────────────────────
-export const AGENT_TEMPLATES: AgentTemplate[] = [
-  {
-    label: 'Claude',
-    emoji: '\u{1F9E0}',
-    endpoint: 'api.anthropic.com/v1',
-    model: 'claude-sonnet-4-5',
-    models: ['claude-sonnet-4-5', 'claude-opus-4', 'claude-haiku-3-5', 'claude-sonnet-4-20250514'],
-    accentColor: '#ff2d95',
-    accentGradient: 'linear-gradient(135deg, #ff2d95, #a855f7)',
-    avatarBg: 'rgba(255,45,149,0.12)',
-  },
-  {
-    label: 'OpenAI',
-    emoji: '\u{1F9BE}',
-    endpoint: 'api.openai.com/v1',
-    model: 'gpt-4o',
-    models: ['gpt-4o', 'gpt-4o-mini', 'gpt-4-turbo', 'gpt-4', 'gpt-3.5-turbo', 'o1', 'o1-mini', 'o3-mini'],
-    accentColor: '#06b6d4',
-    accentGradient: 'linear-gradient(135deg, #06b6d4, #22c55e)',
-    avatarBg: 'rgba(6,182,212,0.12)',
-  },
-  {
-    label: 'Gemini',
-    emoji: '\u{1F48E}',
-    endpoint: 'generativelanguage.googleapis.com/v1',
-    model: 'gemini-1.5-pro',
-    models: ['gemini-2.5-pro', 'gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-1.5-pro', 'gemini-1.5-flash'],
-    accentColor: '#a855f7',
-    accentGradient: 'linear-gradient(135deg, #a855f7, #06b6d4)',
-    avatarBg: 'rgba(168,85,247,0.12)',
-  },
-  {
-    label: 'Mistral',
-    emoji: '\u26A1',
-    endpoint: 'api.mistral.ai/v1',
-    model: 'mistral-large',
-    models: ['mistral-large-latest', 'mistral-medium-latest', 'mistral-small-latest', 'open-mixtral-8x22b', 'codestral-latest'],
-    accentColor: '#facc15',
-    accentGradient: 'linear-gradient(135deg, #facc15, #ff2d95)',
-    avatarBg: 'rgba(250,204,21,0.10)',
-  },
-  {
-    label: 'Ollama',
-    emoji: '\u{1F5A5}\uFE0F',
-    endpoint: 'localhost:11434/v1',
-    model: 'llama3.2',
-    models: ['llama3.2', 'llama3.1', 'llama3', 'mistral', 'mixtral', 'codellama', 'phi3', 'qwen2.5', 'gemma2', 'deepseek-r1'],
-    accentColor: '#22c55e',
-    accentGradient: 'linear-gradient(135deg, #22c55e, #06b6d4)',
-    avatarBg: 'rgba(34,197,94,0.10)',
-  },
-  {
-    label: 'Custom',
-    emoji: '\u{1F52E}',
-    endpoint: '',
-    model: '',
-    models: [],
-    accentColor: '#a855f7',
-    accentGradient: 'linear-gradient(135deg, #a855f7, #06b6d4)',
-    avatarBg: 'rgba(168,85,247,0.12)',
-  },
+// ── Agent templates (endpoint + model ids from llmProviderCatalog) ──
+const AGENT_TEMPLATE_STYLES: Pick<AgentTemplate, 'accentColor' | 'accentGradient' | 'avatarBg'>[] = [
+  { accentColor: '#ff2d95', accentGradient: 'linear-gradient(135deg, #ff2d95, #a855f7)', avatarBg: 'rgba(255,45,149,0.12)' },
+  { accentColor: '#06b6d4', accentGradient: 'linear-gradient(135deg, #06b6d4, #22c55e)', avatarBg: 'rgba(6,182,212,0.12)' },
+  { accentColor: '#a855f7', accentGradient: 'linear-gradient(135deg, #a855f7, #06b6d4)', avatarBg: 'rgba(168,85,247,0.12)' },
+  { accentColor: '#facc15', accentGradient: 'linear-gradient(135deg, #facc15, #ff2d95)', avatarBg: 'rgba(250,204,21,0.10)' },
+  { accentColor: '#22c55e', accentGradient: 'linear-gradient(135deg, #22c55e, #06b6d4)', avatarBg: 'rgba(34,197,94,0.10)' },
+  { accentColor: '#a855f7', accentGradient: 'linear-gradient(135deg, #a855f7, #06b6d4)', avatarBg: 'rgba(168,85,247,0.12)' },
 ];
+
+export const AGENT_TEMPLATES: AgentTemplate[] = LLM_AGENT_PROVIDER_PRESETS.map((p, i) => ({
+  ...p,
+  ...AGENT_TEMPLATE_STYLES[i],
+}));
 
 // ── Avatar emoji options ─────────────────────────────────────
 export const AVATAR_EMOJIS = [
@@ -121,7 +73,7 @@ export const DEFAULT_AGENTS: Agent[] = [
     emoji: '\u{1F9E0}',
     avatarBg: 'rgba(255,45,149,0.12)',
     endpoint: 'api.anthropic.com/v1',
-    model: 'claude-sonnet-4-5',
+    model: 'claude-sonnet-4-20250514',
     status: 'running',
     groupId: 'production',
     latencyMs: 142,
@@ -189,7 +141,7 @@ export const DEFAULT_AGENTS: Agent[] = [
     name: 'Ollama Local',
     emoji: '\u{1F5A5}\uFE0F',
     avatarBg: 'rgba(250,204,21,0.10)',
-    endpoint: 'localhost:11434/v1',
+    endpoint: '127.0.0.1:11434/v1',
     model: 'llama3.2',
     status: 'idle',
     groupId: 'local',

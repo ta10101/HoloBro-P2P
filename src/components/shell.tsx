@@ -7,6 +7,7 @@ import { useAgentTotals } from '../hooks';
 import { StatusDot } from './ui';
 import { useHolochain } from '../providers/HolochainProvider';
 import { normalizeAppWebsocketUrl } from '../holochainConnect';
+import { releaseTierAbbrev, releaseTierLabel } from '../lib/releaseProfile';
 import { HoloBroMiniSprite } from './HoloBroMiniSprite';
 import type { PanelId } from '../types';
 
@@ -17,6 +18,7 @@ export const Header: React.FC = () => {
   const bump = holo.bumpCookieJar;
   const wanderer = useUIStore((s) => s.wanderer);
   const setPanel = useUIStore((s) => s.setPanel);
+  const openWelcomeGuide = useUIStore((s) => s.openWelcomeGuide);
 
   return (
     <header style={{
@@ -43,8 +45,37 @@ export const Header: React.FC = () => {
         fontFamily: 'var(--font-mono)', fontSize: 10,
         color: 'var(--cyan)', letterSpacing: 2, opacity: 0.6,
       }}>v0.4.2-alpha</span>
+      <span
+        title={`Release tier: ${releaseTierLabel()} (set VITE_HOLOBRO_TIER at build time)`}
+        style={{
+          fontFamily: 'var(--font-mono)', fontSize: 9,
+          color: 'var(--muted)', letterSpacing: 1,
+          padding: '2px 6px', borderRadius: 4, border: '1px solid var(--border)',
+        }}
+      >
+        {releaseTierAbbrev()}
+      </span>
 
       <div style={{ flex: 1 }} />
+
+      <button
+        type="button"
+        onClick={() => openWelcomeGuide()}
+        title="Welcome, keys, and safety tips"
+        style={{
+          fontFamily: 'var(--font-mono)',
+          fontSize: 10,
+          letterSpacing: 1,
+          color: 'var(--cyan)',
+          background: 'transparent',
+          border: '1px solid var(--border)',
+          borderRadius: 6,
+          padding: '4px 10px',
+          cursor: 'pointer',
+        }}
+      >
+        Safety tips
+      </button>
 
       {/* P2P badge — shows real connection status */}
       <div style={{
@@ -407,6 +438,7 @@ const GroupPill: React.FC<{ groupId: string; groupName: string; groupColor: stri
   const agents = useAgentStore((s) => s.agents);
   const updateAgent = useAgentStore((s) => s.updateAgent);
   const openMiniChat = useUIStore((s) => s.openMiniChat);
+  const openAgentHub = useUIStore((s) => s.openAgentHub);
 
   const groupAgents = agents.filter((a) => a.groupId === groupId);
   const runningCount = groupAgents.filter((a) => a.status === 'running').length;
@@ -487,8 +519,28 @@ const GroupPill: React.FC<{ groupId: string; groupName: string; groupColor: stri
             <div style={{
               padding: '12px 14px', fontFamily: 'var(--font-mono)',
               fontSize: 10, color: 'var(--muted)', textAlign: 'center',
+              display: 'flex', flexDirection: 'column', gap: 8,
             }}>
-              No agents in this group
+              <span>No agents in this group</span>
+              <button
+                type="button"
+                onClick={() => {
+                  openAgentHub({ addAgent: true, groupId });
+                  setOpen(false);
+                }}
+                style={{
+                  padding: '6px 10px', borderRadius: 8,
+                  border: `1px solid ${groupColor}50`,
+                  background: `${groupColor}14`,
+                  color: groupColor,
+                  cursor: 'pointer',
+                  fontFamily: 'var(--font-ui)',
+                  fontSize: 11,
+                  fontWeight: 600,
+                }}
+              >
+                + New agent in {groupName}
+              </button>
             </div>
           )}
           {groupAgents.map((agent) => (
@@ -580,7 +632,19 @@ const GroupPill: React.FC<{ groupId: string; groupName: string; groupColor: stri
 export const AgentStatusBar: React.FC = () => {
   const groups = useAgentStore((s) => s.groups);
   const setPanel = useUIStore((s) => s.setPanel);
+  const openAgentHub = useUIStore((s) => s.openAgentHub);
   const totals = useAgentTotals();
+  const [hubMenuOpen, setHubMenuOpen] = useState(false);
+  const hubMenuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!hubMenuOpen) return;
+    const handler = (e: MouseEvent) => {
+      if (hubMenuRef.current && !hubMenuRef.current.contains(e.target as Node)) setHubMenuOpen(false);
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [hubMenuOpen]);
 
   return (
     <div style={{
@@ -620,21 +684,110 @@ export const AgentStatusBar: React.FC = () => {
         {totals.running} running &middot; ${totals.totalCost.toFixed(2)} today
       </span>
 
-      <button
-        onClick={() => setPanel('agents')}
-        style={{
-          display: 'flex', alignItems: 'center', gap: 5,
-          background: 'transparent', border: '1px dashed var(--border)',
-          borderRadius: 20, padding: '4px 12px',
-          fontFamily: 'var(--font-mono)', fontSize: 10,
-          color: 'var(--muted)', cursor: 'pointer',
-          transition: 'all var(--transition)', whiteSpace: 'nowrap',
-        }}
-      >
-        + Agent Hub
-      </button>
+      <div ref={hubMenuRef} style={{ position: 'relative' }}>
+        <button
+          type="button"
+          onClick={() => setHubMenuOpen((v) => !v)}
+          title="Agent Hub — open or create an agent"
+          style={{
+            display: 'flex', alignItems: 'center', gap: 5,
+            background: 'transparent', border: '1px dashed var(--border)',
+            borderRadius: 20, padding: '4px 12px',
+            fontFamily: 'var(--font-mono)', fontSize: 10,
+            color: 'var(--muted)', cursor: 'pointer',
+            transition: 'all var(--transition)', whiteSpace: 'nowrap',
+          }}
+        >
+          + Agents {hubMenuOpen ? '\u25BC' : '\u25B2'}
+        </button>
+        {hubMenuOpen && (
+          <div style={{
+            position: 'absolute', bottom: '100%', right: 0,
+            marginBottom: 6, minWidth: 240,
+            background: 'var(--panel)', border: '1px solid var(--border)',
+            borderRadius: 10, overflow: 'hidden',
+            boxShadow: '0 -8px 28px rgba(0,0,0,0.45)', zIndex: 120,
+          }}>
+            <div style={{
+              padding: '8px 12px', borderBottom: '1px solid var(--border)',
+              fontFamily: 'var(--font-mono)', fontSize: 9,
+              color: 'var(--muted)', letterSpacing: 1, textTransform: 'uppercase',
+            }}>
+              Agent Hub
+            </div>
+            <button
+              type="button"
+              onClick={() => { setPanel('agents'); setHubMenuOpen(false); }}
+              style={agentHubMenuRowStyle}
+            >
+              Open hub
+            </button>
+            <button
+              type="button"
+              onClick={() => { openAgentHub({ addAgent: true }); setHubMenuOpen(false); }}
+              style={agentHubMenuRowStyle}
+            >
+              New agent…
+            </button>
+            {groups.length > 0 && (
+              <>
+                <div style={{
+                  padding: '6px 12px 4px',
+                  fontFamily: 'var(--font-mono)', fontSize: 8,
+                  color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: 1,
+                }}>
+                  New agent in group
+                </div>
+                {groups.map((g) => (
+                  <button
+                    key={g.id}
+                    type="button"
+                    onClick={() => {
+                      openAgentHub({ addAgent: true, groupId: g.id });
+                      setHubMenuOpen(false);
+                    }}
+                    style={{
+                      ...agentHubMenuRowStyle,
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 8,
+                    }}
+                  >
+                    <span style={{ width: 6, height: 6, borderRadius: '50%', background: g.color, flexShrink: 0 }} />
+                    {g.name}
+                  </button>
+                ))}
+                <button
+                  type="button"
+                  onClick={() => {
+                    openAgentHub({ addAgent: true, groupId: '' });
+                    setHubMenuOpen(false);
+                  }}
+                  style={agentHubMenuRowStyle}
+                >
+                  Unassigned only
+                </button>
+              </>
+            )}
+          </div>
+        )}
+      </div>
     </div>
   );
+};
+
+const agentHubMenuRowStyle: React.CSSProperties = {
+  display: 'block',
+  width: '100%',
+  padding: '9px 14px',
+  border: 'none',
+  background: 'transparent',
+  cursor: 'pointer',
+  fontFamily: 'var(--font-ui)',
+  fontSize: 12,
+  color: 'var(--text)',
+  textAlign: 'left',
+  transition: 'background var(--transition)',
 };
 
 // ── HolochainSetupPopup ─────────────────────────────────────

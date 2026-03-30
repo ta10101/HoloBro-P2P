@@ -337,7 +337,7 @@ export const HolochainProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       } else {
         setHcLastError(r.reason);
         setHcStatus(
-          hasHoloConfig
+          hasEffectiveHoloConfig()
             ? `Demo fallback (retrying): ${r.reason}`
             : `Demo mode: ${r.reason}`,
         );
@@ -345,12 +345,12 @@ export const HolochainProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       setHcLastError(msg);
-      setHcStatus(hasHoloConfig ? `Demo fallback (retrying): ${msg}` : `Demo mode: ${msg}`);
+      setHcStatus(hasEffectiveHoloConfig() ? `Demo fallback (retrying): ${msg}` : `Demo mode: ${msg}`);
     } finally {
       hcConnectingRef.current = false;
       setHcConnecting(false);
     }
-  }, [hc, hasHoloConfig, contactHolochainSync, sharedLinkHolochainSync]);
+  }, [hc, contactHolochainSync, sharedLinkHolochainSync]);
 
   // Auto-connect on panel change if needed
   useEffect(() => {
@@ -364,12 +364,14 @@ export const HolochainProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     return () => window.clearTimeout(t);
   }, [connectHolo]);
 
-  // Retry interval
+  // Retry interval (read config fresh — e.g. after welcome flow saves localStorage)
   useEffect(() => {
-    if (!hasHoloConfig || hc) return;
-    const t = window.setInterval(() => void connectHolo(), 15000);
+    const t = window.setInterval(() => {
+      if (!hasEffectiveHoloConfig() || hc) return;
+      void connectHolo();
+    }, 15000);
     return () => window.clearInterval(t);
-  }, [hasHoloConfig, hc, connectHolo]);
+  }, [hc, connectHolo]);
 
   // When Holochain sync is on, merge local-only URLs onto the chain once per connection, then refresh list.
   useEffect(() => {

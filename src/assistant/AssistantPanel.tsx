@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { safeInvoke as invoke, safeOpenUrl as openUrl, isTauri } from '../lib/tauri'
+import { ASSISTANT_BASE_URL_PRESETS } from '../lib/llmProviderCatalog'
 
 export type LlmProvider = 'ollama' | 'openai'
 
@@ -232,11 +233,6 @@ export function AssistantPanel() {
     }
   }
 
-  const presetUrls = [
-    { label: 'Ollama default', value: 'http://127.0.0.1:11434' },
-    { label: 'LM Studio (typical)', value: 'http://127.0.0.1:1234' },
-  ]
-
   return (
     <section className="panel assistant-panel">
       <h2>Assistant (LLM)</h2>
@@ -300,7 +296,7 @@ export function AssistantPanel() {
 
         <div className="assistant-presets">
           <span className="muted">Quick:</span>
-          {presetUrls.map((p) => (
+          {ASSISTANT_BASE_URL_PRESETS.map((p) => (
             <button key={p.value} type="button" className="linkish" onClick={() => update({ baseUrl: p.value })}>
               {p.label}
             </button>

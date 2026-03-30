@@ -2,6 +2,8 @@
 
 This document is **explicit guidance** for anyone shipping or running HoloBro with a conductor: what to configure, in what order, and what security properties you actually get.
 
+**End-user friendly explainer (identity, keys, what not to share):** [HOLOBRO_YOUR_KEYS.md](./HOLOBRO_YOUR_KEYS.md).
+
 ---
 
 ## 1. Read this first (honest scope)

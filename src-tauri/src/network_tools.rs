@@ -10,10 +10,10 @@ use std::net::IpAddr;
 use std::path::Path;
 use std::time::Instant;
 
-fn hide_windows_console(cmd: &mut tokio::process::Command) {
+fn hide_windows_console(_cmd: &mut tokio::process::Command) {
     #[cfg(windows)]
     {
-        cmd.creation_flags(0x08000000);
+        _cmd.creation_flags(0x08000000);
     }
 }
 

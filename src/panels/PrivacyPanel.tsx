@@ -7,9 +7,8 @@ import {
   hcBookmarkEncryptionConfigured,
   hcChatEncryptionConfigured,
 } from '../holochain';
-
-const DOCS_BASE =
-  'https://github.com/ta10101/Holobro/blob/main/docs';
+import { HOLOBRO_DOCS_BASE } from '../lib/docLinks';
+import { holobroReleaseTier, releaseTierLabel } from '../lib/releaseProfile';
 
 function Row({ label, value }: { label: string; value: ReactNode }) {
   return (
@@ -33,6 +32,7 @@ export function PrivacyPanel() {
 
       <table style={{ width: '100%', borderCollapse: 'collapse', marginBottom: '1rem', fontSize: 13 }}>
         <tbody>
+          <Row label="Release tier" value={`${releaseTierLabel()} (${holobroReleaseTier()})`} />
           <Row label="Conductor connected" value={h.hc ? 'Yes' : 'No'} />
           <Row
             label="Holochain env configured"
@@ -60,7 +60,7 @@ export function PrivacyPanel() {
         ), then restart the dev server or desktop build. They are <strong>shared secrets</strong>: anyone with the same passphrase
         and access to chain data can decrypt those payloads. Do not commit <code className="mono">.env.local</code>. In-app
         passphrase storage is not shipped in v1 — see operator doc §6 for backlog. For future key-agreement options, see{' '}
-        <a href={`${DOCS_BASE}/HOLOBRO_CHAT_KEYS_SPIKE.md`} target="_blank" rel="noreferrer">
+        <a href={`${HOLOBRO_DOCS_BASE}/HOLOBRO_CHAT_KEYS_SPIKE.md`} target="_blank" rel="noreferrer">
           Chat keys spike (design note)
         </a>
         .
@@ -69,13 +69,18 @@ export function PrivacyPanel() {
       <h3 style={{ fontSize: 14, marginBottom: 8 }}>Documentation</h3>
       <ul className="list" style={{ fontSize: 13 }}>
         <li>
-          <a href={`${DOCS_BASE}/HOLOBRO_PRIVACY_OPERATORS.md`} target="_blank" rel="noreferrer">
+          <a href={`${HOLOBRO_DOCS_BASE}/HOLOBRO_PRIVACY_OPERATORS.md`} target="_blank" rel="noreferrer">
             Operator guide — env vars, order of setup, checklist
           </a>
         </li>
         <li>
-          <a href={`${DOCS_BASE}/HOLOBRO_DATA_CLASSES.md`} target="_blank" rel="noreferrer">
+          <a href={`${HOLOBRO_DOCS_BASE}/HOLOBRO_DATA_CLASSES.md`} target="_blank" rel="noreferrer">
             Data classes policy table
+          </a>
+        </li>
+        <li>
+          <a href={`${HOLOBRO_DOCS_BASE}/HOLOBRO_YOUR_KEYS.md`} target="_blank" rel="noreferrer">
+            Your keys &amp; identity — why it matters, examples, backups
           </a>
         </li>
       </ul>

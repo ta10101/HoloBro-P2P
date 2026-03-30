@@ -28,3 +28,7 @@ dist-ssr
 
 # Local assistant / IDE (not part of the app)
 .claude/
+
+# Holochain / hc sidecars — fetched via `npm run fetch:sidecars` or CI (do not commit binaries)
+src-tauri/binaries/*
+!src-tauri/binaries/README.md

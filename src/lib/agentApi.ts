@@ -29,9 +29,9 @@ export function removeAgentApiKey(agentId: string): void {
 }
 
 // ── Detect API provider from endpoint ──────────────────────────
-type Provider = 'anthropic' | 'gemini' | 'openai-compat';
+export type LlmProviderKind = 'anthropic' | 'gemini' | 'openai-compat';
 
-function detectProvider(endpoint: string): Provider {
+export function detectLlmProvider(endpoint: string): LlmProviderKind {
   const ep = endpoint.toLowerCase();
   if (ep.includes('anthropic')) return 'anthropic';
   if (ep.includes('googleapis') || ep.includes('gemini')) return 'gemini';
@@ -226,7 +226,7 @@ export async function callAgent(
   const apiKey = getAgentApiKey(agent.id);
   const baseUrl = buildBaseUrl(agent.endpoint);
   const messages = toApiMessages(history, userMessage);
-  const provider = detectProvider(agent.endpoint);
+  const provider = detectLlmProvider(agent.endpoint);
 
   switch (provider) {
     case 'anthropic':
@@ -243,7 +243,7 @@ export async function callAgent(
 export async function pingAgent(agent: Agent): Promise<{ ok: boolean; latencyMs: number; error?: string }> {
   const apiKey = getAgentApiKey(agent.id);
   const baseUrl = buildBaseUrl(agent.endpoint);
-  const provider = detectProvider(agent.endpoint);
+  const provider = detectLlmProvider(agent.endpoint);
   const isCloud = !baseUrl.includes('localhost') && !baseUrl.includes('127.0.0.1')
   const start = performance.now();
 
@@ -285,5 +285,141 @@ export async function pingAgent(agent: Agent): Promise<{ ok: boolean; latencyMs:
     }
 
     return { ok: false, latencyMs, error: msg };
+  }
+}
+
+// ── Live model catalog (provider List models APIs) ─────────────
+function parseOpenAiCompatModelListJson(text: string): string[] {
+  try {
+    const j = JSON.parse(text) as { data?: { id?: string }[] };
+    if (!Array.isArray(j.data)) return [];
+    return j.data
+      .map((x) => x.id)
+      .filter((x): x is string => typeof x === 'string' && x.length > 0);
+  } catch {
+    return [];
+  }
+}
+
+async function fetchOpenAiCompatModelIds(apiKey: string, baseUrl: string): Promise<string[]> {
+  const headers: Record<string, string> = {};
+  if (apiKey) headers['Authorization'] = `Bearer ${apiKey}`;
+  const res = await proxyFetch(`${baseUrl}/models`, 'GET', headers);
+  if (!res.ok) {
+    throw new Error(`${res.status}: ${res.text.slice(0, 200)}`);
+  }
+  return parseOpenAiCompatModelListJson(res.text);
+}
+
+async function fetchAnthropicModelIds(apiKey: string, endpoint: string): Promise<string[]> {
+  const base = buildBaseUrl(endpoint);
+  const out: string[] = [];
+  let after_id: string | undefined;
+  for (let page = 0; page < 50; page++) {
+    const url = new URL(`${base}/models`);
+    url.searchParams.set('limit', '1000');
+    if (after_id) url.searchParams.set('after_id', after_id);
+    const res = await proxyFetch(url.toString(), 'GET', {
+      'x-api-key': apiKey,
+      'anthropic-version': '2023-06-01',
+      'anthropic-dangerous-direct-browser-access': 'true',
+    });
+    if (!res.ok) {
+      throw new Error(`${res.status}: ${res.text.slice(0, 200)}`);
+    }
+    const j = JSON.parse(res.text) as {
+      data?: { id: string }[];
+      has_more?: boolean;
+      last_id?: string;
+    };
+    for (const row of j.data ?? []) {
+      if (row.id) out.push(row.id);
+    }
+    if (!j.has_more) break;
+    after_id = j.last_id;
+    if (!after_id) break;
+  }
+  return [...new Set(out)];
+}
+
+async function fetchGeminiModelIds(apiKey: string, endpoint: string): Promise<string[]> {
+  const base = buildBaseUrl(endpoint);
+  const out: string[] = [];
+  let pageToken: string | undefined;
+  for (let page = 0; page < 50; page++) {
+    const url = new URL(`${base}/models`);
+    url.searchParams.set('key', apiKey);
+    if (pageToken) url.searchParams.set('pageToken', pageToken);
+    const res = await proxyFetch(url.toString(), 'GET', {});
+    if (!res.ok) {
+      throw new Error(`${res.status}: ${res.text.slice(0, 200)}`);
+    }
+    const j = JSON.parse(res.text) as {
+      models?: { name?: string; supportedGenerationMethods?: string[] }[];
+      nextPageToken?: string;
+    };
+    for (const m of j.models ?? []) {
+      const name = m.name;
+      if (!name?.startsWith('models/')) continue;
+      const id = name.slice('models/'.length);
+      const methods = m.supportedGenerationMethods;
+      if (methods?.length && !methods.includes('generateContent')) continue;
+      out.push(id);
+    }
+    pageToken = j.nextPageToken;
+    if (!pageToken) break;
+  }
+  return [...new Set(out)];
+}
+
+export type RemoteModelListResult =
+  | { ok: true; models: string[] }
+  | { ok: false; error: string };
+
+/**
+ * Load current model IDs from the vendor’s **List models** HTTP API for this endpoint.
+ * Requires API key for cloud providers; local OpenAI-compat (Ollama, etc.) works without a key.
+ * In-browser web builds, cloud calls may hit CORS — use the Tauri desktop app.
+ */
+export async function fetchRemoteModelList(
+  endpoint: string,
+  apiKey: string,
+): Promise<RemoteModelListResult> {
+  const ep = endpoint.trim();
+  if (!ep) return { ok: false, error: 'Missing API endpoint' };
+  const baseUrl = buildBaseUrl(ep);
+  const provider = detectLlmProvider(ep);
+  const isLocal =
+    baseUrl.includes('localhost') ||
+    baseUrl.includes('127.0.0.1') ||
+    baseUrl.includes('0.0.0.0');
+
+  try {
+    if (provider === 'anthropic') {
+      const key = apiKey.trim();
+      if (!key) return { ok: false, error: 'Add your Anthropic API key to fetch the live model list.' };
+      const models = await fetchAnthropicModelIds(key, ep);
+      return { ok: true, models };
+    }
+    if (provider === 'gemini') {
+      const key = apiKey.trim();
+      if (!key) return { ok: false, error: 'Add your Gemini API key to fetch the live model list.' };
+      const models = await fetchGeminiModelIds(key, ep);
+      return { ok: true, models };
+    }
+    if (!isLocal && !apiKey.trim()) {
+      return { ok: false, error: 'Add an API key (or use a local OpenAI-compat URL) to list models.' };
+    }
+    const models = await fetchOpenAiCompatModelIds(apiKey.trim(), baseUrl);
+    return { ok: true, models };
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    if (!isLocal && !isTauri() && (msg === 'Failed to fetch' || msg.includes('NetworkError'))) {
+      return {
+        ok: false,
+        error: 'Network/CORS blocked — cloud list-models needs the HoloBro desktop app or a local endpoint.',
+      };
+    }
+    return { ok: false, error: msg };
   }
 }

@@ -21,6 +21,7 @@ Repository: **[github.com/ta10101/Holobro](https://github.com/ta10101/Holobro)**
 - [Build from source](#build-from-source)  
 - [Holochain live mode](#holochain-live-mode)  
 - [Features](#features)  
+- [Releases, dev track, security roadmap](#releases-dev-track-security-roadmap)  
 - [Project layout](#project-layout)  
 - [License](#license)
 
@@ -138,11 +139,34 @@ WebView2 is a **shared Microsoft runtime** used by many apps; uninstalling HoloB
 
 ## Build from source
 
+### Supported desktop targets
+
+| Platform | CI compile check | Release artifacts |
+|----------|------------------|-------------------|
+| **Windows** x64 | yes | NSIS, MSI |
+| **Linux** x64 (glibc) | yes | `.deb`, AppImage |
+| **macOS** Intel + Apple Silicon | yes (native compile on Apple Silicon runner) | Universal **DMG** (release workflow uses `--target universal-apple-darwin`) |
+
+Pull requests run **lint**, **Vite builds** (all release tiers), and **desktop-check** (`npm run build` + `cargo check -p holobro`) on Ubuntu, Windows, and macOS.
+
 ### Prerequisites
 
 - **Node.js** (LTS recommended)  
 - **Rust** (`rustup`)  
 - **Tauri prerequisites** for your OS: [Windows](https://v2.tauri.app/start/prerequisites/) · [macOS](https://v2.tauri.app/start/prerequisites/) · [Linux](https://v2.tauri.app/start/prerequisites/)
+
+**Rust / `cargo` without a local MSVC toolchain (e.g. Windows + Docker):** you can run a **Linux compile check** of the `holobro` crate inside Docker (same idea as the **`desktop-check`** CI matrix (native three-OS compile)). This catches Rust/Tauri breakage; it does **not** produce a Windows `.exe` (that still needs [Visual Studio Build Tools](https://learn.microsoft.com/en-us/cpp/build/vscpp-step-0-installation) locally, or a **`windows-latest`** runner / release workflow).
+
+```bash
+npm run cargo-check:docker
+# equivalent: docker build -f docker/rust-check.Dockerfile -t holobro-rust-check .
+```
+
+The image creates a minimal `dist/index.html` stub during the build: Tauri’s `generate_context!()` requires `build.frontendDist` to exist even for `cargo check`. Real releases still use `npm run build` before `tauri build`.
+
+**Bundled Holochain (Standard/Full):** run **`npm run fetch:sidecars`** to download pinned `holochain`, `lair-keystore`, and `hc` into `src-tauri/binaries/` (see `holochain-sidecars.manifest.json`). Then `npm run build:desktop:standard` (or `:full`). Prebuilts are **Holochain 0.2.x-class**; align with `@holochain/client` + DNA before retail.
+
+**macOS signing (optional, releases):** repository secrets — `MACOS_CERTIFICATE_BASE64` (p12 base64), `MACOS_CERTIFICATE_PASSWORD`, and for notarization commonly `APPLE_CERTIFICATE`, `APPLE_CERTIFICATE_PASSWORD`, `APPLE_SIGNING_IDENTITY`, `APPLE_ID`, `APPLE_PASSWORD`, `APPLE_TEAM_ID` (see [Tauri signing](https://v2.tauri.app/distribute/sign/macos/)).
 
 **Windows installers (maintainers):**
 
@@ -186,7 +210,7 @@ Open the URL Vite prints (default dev port is aligned with Tauri, often **1420**
 
 ## Holochain live mode
 
-**Data policy (what syncs by default):** see [docs/HOLOBRO_DATA_CLASSES.md](./docs/HOLOBRO_DATA_CLASSES.md). **Operator checklist (env, toggles, limits):** [docs/HOLOBRO_PRIVACY_OPERATORS.md](./docs/HOLOBRO_PRIVACY_OPERATORS.md). In short: **browsing history stays on device**; **bookmarks use Holochain only if you enable “Sync bookmarks to Holochain”** in the Bookmarks panel.
+**Data policy (what syncs by default):** see [docs/HOLOBRO_DATA_CLASSES.md](./docs/HOLOBRO_DATA_CLASSES.md). **Operator checklist (env, toggles, limits):** [docs/HOLOBRO_PRIVACY_OPERATORS.md](./docs/HOLOBRO_PRIVACY_OPERATORS.md). **Why your keys and passphrases matter (with examples):** [docs/HOLOBRO_YOUR_KEYS.md](./docs/HOLOBRO_YOUR_KEYS.md). In short: **browsing history stays on device**; **bookmarks use Holochain only if you enable “Sync bookmarks to Holochain”** in the Bookmarks panel.
 
 1. Build zomes and pack DNA / hApp (WSL or Linux with `hc` recommended on Windows):
 
@@ -235,15 +259,26 @@ Implementation order is flexible; each slice should stay consistent with [docs/H
 
 ---
 
+## Releases, dev track, security roadmap
+
+- **Development** today: manual conductor URL + token (`.env.local` or status bar **Setup**), full source tree — see [Holochain live mode](#holochain-live-mode). The plan is to **keep** this dev path and **narrow** optional complexity over time, not remove attach-to-conductor workflows.
+- **Retail direction (same repo, multiple artifacts or forks):** **Lightweight** (minimal / local-first), **Standard** (bundled Holochain for typical P2P use), **Full** (extended capabilities / diagnostics — scope TBD). **Build-time label:** set `VITE_HOLOBRO_TIER` or use `npm run build:desktop:lightweight` / `:standard` / `:full` (see roadmap doc). **Desktop packaging:** Lightweight never merges Holochain/Lair sidecars; Standard/Full use `scripts/tauri-build-tier.mjs`, which merges `src-tauri/tauri.bundle-holochain.conf.json` only when `src-tauri/binaries/` contains the expected `holochain-*` and `lair-keystore-*` files ([`src-tauri/binaries/README.md`](./src-tauri/binaries/README.md)).
+- **Cryptography:** v1 uses optional shared passphrases + AES-GCM for some payloads. **Forward secrecy** and richer key agreement are **later milestones**, documented in [docs/HOLOBRO_CHAT_KEYS_SPIKE.md](./docs/HOLOBRO_CHAT_KEYS_SPIKE.md) and the roadmap file above.
+
+---
+
 ## Project layout
 
 - `src/` — React UI  
-- `src-tauri/` — Tauri/Rust: webview, HTTP bridge, LLM, network tools  
+- `src-tauri/` — Tauri/Rust: webview, HTTP bridge, LLM, network tools; optional `binaries/` for sidecars (Standard/Full)  
 - `dnas/anon_browser/` — Holochain integrity + coordinator zomes  
 - `workdir/happ.yaml` — hApp manifest (`holobro`, role `anon_browser`)  
+- `docs/HOLOBRO_HOLOCHAIN_SURFACE.md` — **canonical index**: env vars, `localStorage`, connection code, zome API, Tauri sidecars  
 - `docs/HOLOBRO_DATA_CLASSES.md` — data-class policy  
 - `docs/HOLOBRO_PRIVACY_OPERATORS.md` — env + toggles + checklist for operators  
 - `docs/HOLOBRO_CHAT_KEYS_SPIKE.md` — design note for future chat key models  
+- `docs/HOLOBRO_YOUR_KEYS.md` — user-oriented guide: identity, passphrases, dev vs bundled app  
+- `docs/HOLOBRO_RELEASE_AND_SECURITY_ROADMAP.md` — dev track, lightweight/standard/full intent, FS / crypto milestones  
 - `scripts/` — WSL helpers for WASM zomes and `hc` pack  
 
 ---

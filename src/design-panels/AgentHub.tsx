@@ -1,7 +1,7 @@
 // ============================================================
 // HoloBro — Agent Hub Panel + Sub-components
 // ============================================================
-import React, { useState } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useAgentStore, useUIStore } from '../store';
 import {
   useAgentsByGroup, useAgentTotals, useUnassignedAgents,
@@ -11,7 +11,9 @@ import {
   MonoLabel, Btn, TextInput, InlineEditInput,
 } from '../components/ui';
 import { AGENT_TEMPLATES, AVATAR_EMOJIS, AVATAR_BACKGROUNDS } from '../constants';
-import { saveAgentApiKey, pingAgent } from '../lib/agentApi';
+import { OLLAMA_OPENAI_COMPAT_ENDPOINT } from '../lib/llmProviderCatalog';
+import { saveAgentApiKey, pingAgent, fetchRemoteModelList } from '../lib/agentApi';
+import { MODEL_LIST_API_DOCS } from '../lib/modelCatalogSources';
 import { ALERT_SOUND_OPTIONS, ALERT_ON_OPTIONS, playAlertSound, readAudioFile } from '../lib/alertSounds';
 import type { Agent, AgentGroup, AlertSound } from '../types';
 
@@ -554,33 +556,63 @@ interface AddAgentFormProps {
   onDone: () => void;
 }
 
+const FIRST_AGENT_TEMPLATE = AGENT_TEMPLATES[0];
+
 export const AddAgentForm: React.FC<AddAgentFormProps> = ({ defaultGroupId, onDone }) => {
   const addAgent = useAgentStore((s) => s.addAgent);
   const groups = useAgentStore((s) => s.groups);
-  const [name, setName] = useState('Claude');
-  const [endpoint, setEndpoint] = useState('api.anthropic.com/v1');
-  const [model, setModel] = useState('claude-sonnet-4-5');
-  const [selectedEmoji, setSelectedEmoji] = useState('\u{1F9E0}');
-  const [selectedBg, setSelectedBg] = useState(AVATAR_BACKGROUNDS[0]);
+  const [name, setName] = useState(FIRST_AGENT_TEMPLATE.label);
+  const [endpoint, setEndpoint] = useState(FIRST_AGENT_TEMPLATE.endpoint);
+  const [model, setModel] = useState(FIRST_AGENT_TEMPLATE.model);
+  const [selectedEmoji, setSelectedEmoji] = useState(FIRST_AGENT_TEMPLATE.emoji);
+  const [selectedBg, setSelectedBg] = useState(FIRST_AGENT_TEMPLATE.avatarBg);
   const [selectedTemplate, setSelectedTemplate] = useState(0);
-  const [selectedGroup, setSelectedGroup] = useState(defaultGroupId ?? groups[0]?.id ?? '');
+  const [selectedGroup, setSelectedGroup] = useState(
+    () => (defaultGroupId !== undefined ? defaultGroupId : (groups[0]?.id ?? '')),
+  );
   const [apiKey, setApiKey] = useState('');
+  const [liveModels, setLiveModels] = useState<string[] | null>(null);
+  const [liveFetchErr, setLiveFetchErr] = useState<string | null>(null);
+  const [liveFetchBusy, setLiveFetchBusy] = useState(false);
 
   const templateModels = AGENT_TEMPLATES[selectedTemplate]?.models ?? [];
+  const isLocalEndpoint =
+    endpoint.includes('localhost') ||
+    endpoint.includes('127.0.0.1') ||
+    endpoint.includes('0.0.0.0');
+  const isCustomTemplate = selectedTemplate === AGENT_TEMPLATES.length - 1;
+  const canFetchLiveModels =
+    !isCustomTemplate &&
+    Boolean(endpoint.trim()) &&
+    (isLocalEndpoint || Boolean(apiKey.trim()));
+
+  useEffect(() => {
+    setLiveModels(null);
+    setLiveFetchErr(null);
+  }, [selectedTemplate, endpoint]);
+
+  const modelOptions = useMemo(() => {
+    const preset = templateModels;
+    const extra = liveModels ?? [];
+    return [...new Set([...extra, ...preset])].sort((a, b) => a.localeCompare(b));
+  }, [templateModels, liveModels]);
 
   const selectTemplate = (idx: number) => {
     const t = AGENT_TEMPLATES[idx];
     setSelectedTemplate(idx);
     setName(t.label);
     setEndpoint(t.endpoint);
-    setModel(t.model);
+    setModel(t.models[0] ?? t.model);
     setSelectedEmoji(t.emoji);
     setSelectedBg(t.avatarBg);
   };
 
   const handleConnect = () => {
     const agentId = crypto.randomUUID();
-    const isLocal = endpoint.includes('localhost') || endpoint.includes('127.0.0.1');
+    const isLocal =
+      endpoint.includes('localhost') ||
+      endpoint.includes('127.0.0.1') ||
+      endpoint.includes('0.0.0.0');
     const newAgent: Agent = {
       id: agentId,
       name, emoji: selectedEmoji, avatarBg: selectedBg,
@@ -673,7 +705,7 @@ export const AddAgentForm: React.FC<AddAgentFormProps> = ({ defaultGroupId, onDo
             {templateModels.length > 0 ? (
               <div style={{ display: 'flex', gap: 4 }}>
                 <select
-                  value={templateModels.includes(model) ? model : '__custom__'}
+                  value={modelOptions.includes(model) ? model : '__custom__'}
                   onChange={(e) => { if (e.target.value !== '__custom__') setModel(e.target.value) }}
                   style={{
                     flex: 1, padding: '7px 8px', background: 'var(--bg)',
@@ -681,12 +713,12 @@ export const AddAgentForm: React.FC<AddAgentFormProps> = ({ defaultGroupId, onDo
                     fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text)', outline: 'none',
                   }}
                 >
-                  {templateModels.map((m) => (
+                  {modelOptions.map((m) => (
                     <option key={m} value={m}>{m}</option>
                   ))}
                   <option value="__custom__">{'\u2014'} custom{'\u2026'}</option>
                 </select>
-                {!templateModels.includes(model) && (
+                {!modelOptions.includes(model) && (
                   <TextInput
                     value={model}
                     onChange={(e) => setModel(e.target.value)}
@@ -712,18 +744,84 @@ export const AddAgentForm: React.FC<AddAgentFormProps> = ({ defaultGroupId, onDo
           />
           <div style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: endpoint.includes('localhost') ? 'var(--cyan)' : 'var(--green)', marginTop: 4 }}>
             {endpoint.includes('localhost') || endpoint.includes('127.0.0.1')
-              ? '\u{1F310} Local endpoint \u2014 no API key needed (Ollama, etc.)'
+              ? `\u{1F310} Local OpenAI-compat base (use ${OLLAMA_OPENAI_COMPAT_ENDPOINT} to match the AI Assistant panel’s Ollama host). No API key needed.`
               : '\u{1F512} Key stored locally and only sent to the API endpoint'}
           </div>
+          {!isCustomTemplate && (
+            <div style={{ marginTop: 10 }}>
+              <Btn
+                variant="ghost"
+                size="sm"
+                disabled={!canFetchLiveModels || liveFetchBusy}
+                onClick={() => {
+                  void (async () => {
+                    setLiveFetchBusy(true);
+                    setLiveFetchErr(null);
+                    const r = await fetchRemoteModelList(endpoint, apiKey);
+                    setLiveFetchBusy(false);
+                    if (r.ok) {
+                      setLiveModels(r.models);
+                      if (r.models.length && !r.models.includes(model)) {
+                        setModel(r.models[0]);
+                      }
+                    } else {
+                      setLiveFetchErr(r.error);
+                    }
+                  })();
+                }}
+                style={{ fontSize: 10 }}
+              >
+                {liveFetchBusy ? '\u23F3 Fetching model list…' : '\u27F3 Fetch live model IDs (List models API)'}
+              </Btn>
+              {liveModels && liveModels.length > 0 && (
+                <span style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--green)', marginLeft: 8 }}>
+                  {liveModels.length} from provider
+                </span>
+              )}
+              {liveFetchErr && (
+                <div style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--red)', marginTop: 6 }}>
+                  {liveFetchErr}
+                </div>
+              )}
+              <div style={{ fontFamily: 'var(--font-mono)', fontSize: 8, color: 'var(--muted)', marginTop: 6, lineHeight: 1.5 }}>
+                Vendors expose machine-updatable catalogs via authenticated HTTP (no single shared JSON).
+                API refs:{' '}
+                <a href={MODEL_LIST_API_DOCS.anthropic} target="_blank" rel="noreferrer" style={{ color: 'var(--cyan)' }}>Anthropic</a>
+                {' · '}
+                <a href={MODEL_LIST_API_DOCS.openai} target="_blank" rel="noreferrer" style={{ color: 'var(--cyan)' }}>OpenAI</a>
+                {' · '}
+                <a href={MODEL_LIST_API_DOCS.gemini} target="_blank" rel="noreferrer" style={{ color: 'var(--cyan)' }}>Gemini</a>
+                {' · '}
+                <a href={MODEL_LIST_API_DOCS.mistral} target="_blank" rel="noreferrer" style={{ color: 'var(--cyan)' }}>Mistral</a>
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Group selection */}
         <div style={{ marginBottom: 16 }}>
           <MonoLabel style={{ marginBottom: 6 }}>Add to Group</MonoLabel>
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+            <button
+              type="button"
+              onClick={() => setSelectedGroup('')}
+              style={{
+                display: 'flex', alignItems: 'center', gap: 6,
+                background: selectedGroup === '' ? 'rgba(250,204,21,0.08)' : 'var(--dim)',
+                border: `1px solid ${selectedGroup === '' ? 'var(--amber)' : 'var(--border)'}`,
+                borderRadius: 20, padding: '5px 14px',
+                cursor: 'pointer', fontFamily: 'var(--font-ui)', fontSize: 12, fontWeight: 600,
+                color: selectedGroup === '' ? 'var(--amber)' : 'var(--text)',
+                transition: 'all var(--transition)',
+              }}
+            >
+              <div style={{ width: 8, height: 8, borderRadius: '50%', background: 'var(--muted)' }} />
+              Unassigned
+            </button>
             {groups.map((g) => (
               <button
                 key={g.id}
+                type="button"
                 onClick={() => setSelectedGroup(g.id)}
                 style={{
                   display: 'flex', alignItems: 'center', gap: 6,
@@ -1076,10 +1174,22 @@ const UnassignedSection: React.FC<UnassignedSectionProps> = ({ agents, onPickAva
 export const AgentHubPanel: React.FC = () => {
   const grouped = useAgentsByGroup();
   const totals = useAgentTotals();
+  const agentHubIntent = useUIStore((s) => s.agentHubIntent);
+  const clearAgentHubIntent = useUIStore((s) => s.clearAgentHubIntent);
   const [showAdd, setShowAdd] = useState(false);
   const [showNewGroup, setShowNewGroup] = useState(false);
   const [avatarTarget, setAvatarTarget] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
+  const [addFormKey, setAddFormKey] = useState(0);
+  const [addIntentGroupId, setAddIntentGroupId] = useState<string | undefined>(undefined);
+
+  useEffect(() => {
+    if (!agentHubIntent?.addAgent) return;
+    setShowAdd(true);
+    setAddIntentGroupId(agentHubIntent.groupId);
+    setAddFormKey((k) => k + 1);
+    clearAgentHubIntent();
+  }, [agentHubIntent, clearAgentHubIntent]);
 
   const handleRefreshAll = async () => {
     setRefreshing(true);
@@ -1161,7 +1271,14 @@ export const AgentHubPanel: React.FC = () => {
       {/* Global add form */}
       {showAdd && (
         <div style={{ marginBottom: 24 }}>
-          <AddAgentForm onDone={() => setShowAdd(false)} />
+          <AddAgentForm
+            key={addFormKey}
+            defaultGroupId={addIntentGroupId}
+            onDone={() => {
+              setShowAdd(false);
+              setAddIntentGroupId(undefined);
+            }}
+          />
         </div>
       )}
 

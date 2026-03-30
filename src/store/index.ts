@@ -210,6 +210,9 @@ interface BrowserTab {
 }
 
 // ── UI store ─────────────────────────────────────────────────
+/** When set, Agent Hub opens the add-agent flow; optional `groupId` (empty string = unassigned). */
+export type AgentHubIntent = { addAgent: true; groupId?: string };
+
 interface UIStore {
   activePanel: PanelId;
   inspectorOpen: boolean;
@@ -219,6 +222,10 @@ interface UIStore {
   networkStats: NetworkStats;
   browserUrl: string | null;
   firstRunDismissed: boolean;
+  /** True when user re-opens the welcome / safety modal from the header. */
+  welcomeGuideOpen: boolean;
+  /** Consumed by Agent Hub (e.g. status bar “new agent” + group). */
+  agentHubIntent: AgentHubIntent | null;
 
   // Tabs
   tabs: BrowserTab[];
@@ -236,6 +243,9 @@ interface UIStore {
   goForward: () => void;
 
   setPanel: (panel: PanelId) => void;
+  /** Go to Agent Hub; optionally open the new-agent form and pre-select a group. */
+  openAgentHub: (opts?: { addAgent?: boolean; groupId?: string }) => void;
+  clearAgentHubIntent: () => void;
   toggleInspector: () => void;
   setInspectorFocus: (agentId: string | null) => void;
   openMiniChat: (agentId: string) => void;
@@ -244,6 +254,8 @@ interface UIStore {
   navigate: (url: string) => void;
   goHome: () => void;
   dismissFirstRun: () => void;
+  openWelcomeGuide: () => void;
+  closeWelcomeGuide: () => void;
 }
 
 const PANEL_ICONS: Partial<Record<PanelId, string>> = {
@@ -273,6 +285,8 @@ export const useUIStore = create<UIStore>((set) => ({
   networkStats: DEFAULT_NETWORK_STATS,
   browserUrl: null,
   firstRunDismissed: localStorage.getItem('holobro_first_run_dismissed') === '1',
+  welcomeGuideOpen: false,
+  agentHubIntent: null,
 
   tabs: INITIAL_TABS,
   activeTabId: 'tab-home',
@@ -319,8 +333,32 @@ export const useUIStore = create<UIStore>((set) => ({
             icon: PANEL_ICONS[panel] || t.icon, label: PANEL_LABELS[panel] || t.label }
         : t,
     );
-    return { activePanel: panel, tabs: updatedTabs };
+    return {
+      activePanel: panel,
+      tabs: updatedTabs,
+      // Always clear; use `openAgentHub` when navigation must carry “new agent” intent.
+      agentHubIntent: null,
+    };
   }),
+
+  openAgentHub: (opts) => set((s) => {
+    const panel: PanelId = 'agents';
+    const updatedTabs = s.tabs.map((t) =>
+      t.id === s.activeTabId
+        ? { ...t, panelId: panel, url: null,
+            icon: PANEL_ICONS[panel] || t.icon, label: PANEL_LABELS[panel] || t.label }
+        : t,
+    );
+    return {
+      activePanel: panel,
+      tabs: updatedTabs,
+      agentHubIntent: opts?.addAgent
+        ? { addAgent: true, ...(opts.groupId !== undefined ? { groupId: opts.groupId } : {}) }
+        : null,
+    };
+  }),
+
+  clearAgentHubIntent: () => set({ agentHubIntent: null }),
 
   toggleInspector: () =>
     set((s) => ({ inspectorOpen: !s.inspectorOpen })),
@@ -395,4 +433,7 @@ export const useUIStore = create<UIStore>((set) => ({
     localStorage.setItem('holobro_first_run_dismissed', '1');
     set({ firstRunDismissed: true });
   },
+
+  openWelcomeGuide: () => set({ welcomeGuideOpen: true }),
+  closeWelcomeGuide: () => set({ welcomeGuideOpen: false }),
 }));
