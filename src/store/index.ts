@@ -249,14 +249,14 @@ interface UIStore {
 const PANEL_ICONS: Partial<Record<PanelId, string>> = {
   browser: '\u{1F310}', bookmarks: '\u{1F516}', history: '\u{1F550}',
   library: '\u{1F4DA}', contacts: '\u{1F465}', chat: '\u{1F4AC}',
-  video: '\u25B6\uFE0F', weather: '\u{1F324}', assistant: '\u{1F916}',
+  video: '\u25B6\uFE0F', privacy: '\u{1F512}', weather: '\u{1F324}', assistant: '\u{1F916}',
   network: '\u{1F4E1}', agents: '\u26A1', wanderer: '\u{1F3AD}',
 };
 
 const PANEL_LABELS: Partial<Record<PanelId, string>> = {
   browser: 'New Tab', bookmarks: 'Bookmarks', history: 'History',
   library: 'P2P Library', contacts: 'Peers', chat: 'Chat',
-  video: 'Video', weather: 'Weather', assistant: 'AI Assistant',
+  video: 'Video', privacy: 'Privacy', weather: 'Weather', assistant: 'AI Assistant',
   network: 'Network', agents: 'Agent Hub', wanderer: 'Wanderer',
 };
 

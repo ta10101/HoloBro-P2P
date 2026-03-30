@@ -3,10 +3,25 @@ import {
   type ActionHash,
   type AgentPubKey,
 } from '@holochain/client'
+import { openBookmarkRow, sealBookmarkForChain } from './lib/bookmarkEnvelope'
+import { decryptMessage, encryptMessage, isCryptoAvailable } from './lib/chatCrypto'
 
 /** Matches `workdir/happ.yaml` role name. */
 export const HC_ROLE_NAME = import.meta.env.VITE_HC_ROLE_NAME ?? 'anon_browser'
 export const HC_ZOME_NAME = 'anon_browser'
+
+const HC_CHAT_PASSPHRASE = (import.meta.env.VITE_HC_CHAT_PASSPHRASE as string | undefined)?.trim()
+const HC_BOOKMARK_PASSPHRASE = (import.meta.env.VITE_HC_BOOKMARK_PASSPHRASE as string | undefined)?.trim()
+
+/** When set, chat bodies are AES-GCM encrypted before `send_chat_message` (per-thread salt). See `.env.example`. */
+export function hcChatEncryptionConfigured(): boolean {
+  return Boolean(HC_CHAT_PASSPHRASE)
+}
+
+/** When set and bookmark sync is on, `create_bookmark` stores an encrypted envelope (see `bookmarkEnvelope.ts`). */
+export function hcBookmarkEncryptionConfigured(): boolean {
+  return Boolean(HC_BOOKMARK_PASSPHRASE)
+}
 
 // ── Row types ───────────────────────────────────────────────────────────
 
@@ -120,14 +135,24 @@ function assertArray<T>(val: unknown, label: string): T[] {
 // ═══════════════════════════════════════════════════════════════════════
 
 export async function hcListBookmarks(client: AppWebsocket): Promise<BookmarkRow[]> {
-  return assertArray<BookmarkRow>(await callZome(client, 'list_bookmarks', null), 'list_bookmarks')
+  const rows = assertArray<BookmarkRow>(await callZome(client, 'list_bookmarks', null), 'list_bookmarks')
+  if (!HC_BOOKMARK_PASSPHRASE || !isCryptoAvailable()) return rows
+  const pp = HC_BOOKMARK_PASSPHRASE
+  return Promise.all(rows.map((r) => openBookmarkRow(r, pp)))
 }
 
 export async function hcCreateBookmark(
   client: AppWebsocket,
   input: { url: string; title: string; created_at_ms: number },
 ): Promise<void> {
-  await callZome(client, 'create_bookmark', input)
+  let payload = input
+  if (HC_BOOKMARK_PASSPHRASE && isCryptoAvailable()) {
+    payload = {
+      ...input,
+      ...(await sealBookmarkForChain(input.url, input.title, HC_BOOKMARK_PASSPHRASE)),
+    }
+  }
+  await callZome(client, 'create_bookmark', payload)
 }
 
 export async function hcDeleteBookmark(client: AppWebsocket, actionHash: ActionHash): Promise<void> {
@@ -162,16 +187,29 @@ export async function hcSendChat(
   client: AppWebsocket,
   input: { thread_id: string; body: string; sent_at_ms: number },
 ): Promise<void> {
-  await callZome(client, 'send_chat_message', input)
+  let body = input.body
+  if (HC_CHAT_PASSPHRASE && isCryptoAvailable()) {
+    body = await encryptMessage(input.body, HC_CHAT_PASSPHRASE, input.thread_id)
+  }
+  await callZome(client, 'send_chat_message', { ...input, body })
 }
 
 export async function hcListThread(
   client: AppWebsocket,
   threadId: string,
 ): Promise<ChatMessageRow[]> {
-  return assertArray<ChatMessageRow>(
+  const rows = assertArray<ChatMessageRow>(
     await callZome(client, 'list_thread_messages', { thread_id: threadId }),
     'list_thread_messages',
+  )
+  if (!HC_CHAT_PASSPHRASE || !isCryptoAvailable()) return rows
+  const pp = HC_CHAT_PASSPHRASE
+  return Promise.all(
+    rows.map(async (r) => {
+      const pt = await decryptMessage(r.body, pp, threadId)
+      if (pt !== null) return { ...r, body: pt }
+      return r
+    }),
   )
 }
 

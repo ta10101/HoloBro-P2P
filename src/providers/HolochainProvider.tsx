@@ -15,7 +15,7 @@ import React, {
   useState,
 } from 'react';
 import { encodeHashToBase64, type ActionHash, type AppWebsocket } from '@holochain/client';
-import { tryConnectHolo } from '../holochainConnect';
+import { hasEffectiveHoloConfig, tryConnectHolo } from '../holochainConnect';
 import {
   effectiveContentProxyUrl,
   isContentProxyActive,
@@ -26,14 +26,10 @@ import {
 import {
   hcCreateBookmark,
   hcCreateContact,
-  hcCreateHistory,
   hcCreateSharedLink,
-  hcClearHistory,
   hcDeleteBookmark,
-  hcDeleteHistory,
   hcListBookmarks,
   hcListContacts,
-  hcListHistory,
   hcListSharedLinks,
   hcListSharedPages,
   hcListSignals,
@@ -43,7 +39,6 @@ import {
   type BookmarkRow,
   type ChatMessageRow,
   type ContactRow,
-  type HistoryRow,
   type SharedLinkRow,
   type SharedPageRow,
 } from '../holochain';
@@ -61,6 +56,9 @@ import {
   LS_COOKIE_JAR,
   LS_HISTORY,
   LS_PENDING_OPS,
+  LS_BOOKMARK_HOLOCHAIN_SYNC,
+  LS_CONTACT_HOLOCHAIN_SYNC,
+  LS_SHARED_LINK_HOLOCHAIN_SYNC,
   LS_SHARED_LINKS,
   LS_STARTUP_GREETING,
   LS_WANDERER_ENABLED,
@@ -71,10 +69,9 @@ import {
   mergeThreadIntoDemoChat,
   mirrorBookmarks,
   mirrorContacts,
-  mirrorHistory,
   mirrorSharedLinks,
 } from '../lib/holoMirror';
-import { pickWelcomeLine, playTranceBed, type AppIdentityResult } from '../lib/startupGreeting';
+import { pickWelcomeLine, type AppIdentityResult } from '../lib/startupGreeting';
 import type { ContactDisplay, PendingOp } from '../app/types';
 import { useUIStore } from '../store';
 import type { PanelId } from '../types';
@@ -89,6 +86,8 @@ export interface HolochainContextValue {
   hcStatus: string;
   hcConnecting: boolean;
   hasHoloConfig: boolean;
+  /** Set when the last `tryConnectHolo` failed; cleared on success. Safe to show in UI (no secrets). */
+  hcLastError: string | null;
   reconnect: () => void;
 
   // Active panel (using design PanelId)
@@ -107,19 +106,22 @@ export interface HolochainContextValue {
   recordNavigation: (url: string) => void;
   shareLink: (url: string, title: string, description: string, tags: string) => Promise<void>;
 
-  // Bookmarks
+  // Bookmarks (Holochain sync is opt-in — see docs/HOLOBRO_DATA_CLASSES.md)
   bookmarks: BookmarkRow[];
   demoBookmarks: { url: string; title: string }[];
+  bookmarkHolochainSync: boolean;
+  setBookmarkHolochainSync: (enabled: boolean) => void;
   removeBookmark: (hash: ActionHash | undefined, urlStr: string) => void;
 
-  // History
-  historyRows: HistoryRow[];
+  // History (v1: device-only per docs/HOLOBRO_DATA_CLASSES.md — never synced to Holochain)
   demoHistory: { url: string; title: string; visited_at_ms: number }[];
   removeHistory: (hash: ActionHash | undefined, url: string, visitedAt: number) => void;
   clearAllHistory: () => void;
 
-  // Contacts
+  // Contacts (Holochain sync opt-in — same pattern as bookmarks)
   contactList: ContactDisplay[];
+  contactHolochainSync: boolean;
+  setContactHolochainSync: (enabled: boolean) => void;
   addContact: (name: string, peerKey: string, proof: string) => void;
 
   // Chat
@@ -143,10 +145,12 @@ export interface HolochainContextValue {
   stopVideo: () => void;
   signalPollActive: boolean;
 
-  // P2P Library
+  // P2P Library (shared link publish opt-in; cached pages still load when connected)
   sharedLinks: SharedLinkRow[];
   sharedPages: SharedPageRow[];
   demoSharedLinks: { url: string; title: string; description: string; tags: string; shared_at_ms: number }[];
+  sharedLinkHolochainSync: boolean;
+  setSharedLinkHolochainSync: (enabled: boolean) => void;
 
   // Cookie Jar
   cookieJarCount: number;
@@ -180,14 +184,12 @@ export function useHolochain(): HolochainContextValue {
 
 // ── Provider ─────────────────────────────────────────────────
 export const HolochainProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const hasHoloConfig = Boolean(
-    (import.meta.env.VITE_HC_APP_WS as string | undefined)?.trim()
-      && (import.meta.env.VITE_HC_APP_TOKEN as string | undefined)?.trim(),
-  );
+  const hasHoloConfig = hasEffectiveHoloConfig();
 
   // ─── Holochain connection ───────────────────────────────────
   const [hc, setHc] = useState<AppWebsocket | null>(null);
   const [hcStatus, setHcStatus] = useState<string>('Disconnected (demo storage)');
+  const [hcLastError, setHcLastError] = useState<string | null>(null);
   const hcConnectingRef = useRef(false);
   const [hcConnecting, setHcConnecting] = useState(false);
   const lastConnectTryRef = useRef(0);
@@ -205,12 +207,24 @@ export const HolochainProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   const [demoBookmarks, setDemoBookmarks] = useState<{ url: string; title: string }[]>(() =>
     loadJsonPrefer(LS_BOOKMARKS, LS_BOOKMARKS_LEGACY, []),
   );
+  const [bookmarkHolochainSync, setBookmarkHolochainSyncState] = useState(
+    () => localStorage.getItem(LS_BOOKMARK_HOLOCHAIN_SYNC) === '1',
+  );
+  const demoBookmarksRef = useRef(demoBookmarks);
+  demoBookmarksRef.current = demoBookmarks;
+  const bookmarkMergedForHcRef = useRef<AppWebsocket | null>(null);
 
   // ─── Contacts ──────────────────────────────────────────────
   const [contacts, setContacts] = useState<ContactRow[]>([]);
   const [demoContacts, setDemoContacts] = useState<{ name: string; peerKey: string; proof: string }[]>(() =>
     loadJsonPrefer(LS_CONTACTS, LS_CONTACTS_LEGACY, []),
   );
+  const [contactHolochainSync, setContactHolochainSyncState] = useState(
+    () => localStorage.getItem(LS_CONTACT_HOLOCHAIN_SYNC) === '1',
+  );
+  const demoContactsRef = useRef(demoContacts);
+  demoContactsRef.current = demoContacts;
+  const contactMergedForHcRef = useRef<AppWebsocket | null>(null);
 
   // ─── Chat ──────────────────────────────────────────────────
   const [threadId, setThreadId] = useState('general');
@@ -221,7 +235,6 @@ export const HolochainProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   const [chatInput, setChatInput] = useState('');
 
   // ─── History ────────────────────────────────────────────────
-  const [historyRows, setHistoryRows] = useState<HistoryRow[]>([]);
   const [demoHistory, setDemoHistory] = useState<{ url: string; title: string; visited_at_ms: number }[]>(() =>
     loadJson(LS_HISTORY, []),
   );
@@ -231,6 +244,12 @@ export const HolochainProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   const [demoSharedLinks, setDemoSharedLinks] = useState<{
     url: string; title: string; description: string; tags: string; shared_at_ms: number;
   }[]>(() => loadJson(LS_SHARED_LINKS, []));
+  const [sharedLinkHolochainSync, setSharedLinkHolochainSyncState] = useState(
+    () => localStorage.getItem(LS_SHARED_LINK_HOLOCHAIN_SYNC) === '1',
+  );
+  const demoSharedLinksRef = useRef(demoSharedLinks);
+  demoSharedLinksRef.current = demoSharedLinks;
+  const sharedLinkMergedForHcRef = useRef<AppWebsocket | null>(null);
   const [sharedPages, setSharedPages] = useState<SharedPageRow[]>([]);
 
   // ─── Video ──────────────────────────────────────────────────
@@ -258,7 +277,19 @@ export const HolochainProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     const n = Number(raw ?? '0');
     return Number.isFinite(n) && n > 0 ? Math.min(999, Math.floor(n)) : 0;
   });
-  const [pendingOps, setPendingOps] = useState<PendingOp[]>(() => loadJson<PendingOp[]>(LS_PENDING_OPS, []));
+  const [pendingOps, setPendingOps] = useState<PendingOp[]>(() => {
+    const raw = loadJson<PendingOp[]>(LS_PENDING_OPS, []);
+    const bookmarkSyncOn = localStorage.getItem(LS_BOOKMARK_HOLOCHAIN_SYNC) === '1';
+    const contactSyncOn = localStorage.getItem(LS_CONTACT_HOLOCHAIN_SYNC) === '1';
+    const sharedLinkSyncOn = localStorage.getItem(LS_SHARED_LINK_HOLOCHAIN_SYNC) === '1';
+    return raw.filter((o) => {
+      if (o.kind === 'history') return false;
+      if (o.kind === 'bookmark' && !bookmarkSyncOn) return false;
+      if (o.kind === 'contact' && !contactSyncOn) return false;
+      if (o.kind === 'shared_link' && !sharedLinkSyncOn) return false;
+      return true;
+    });
+  });
 
   const bumpCookieJar = useCallback(() => {
     setCookieJarCount((c) => Math.min(999, c + 1));
@@ -282,38 +313,44 @@ export const HolochainProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       const r = await tryConnectHolo();
       if (r.ok) {
         setHc(r.client);
+        setHcLastError(null);
         setHcStatus(
           r.signingNote
             ? `Connected (with warning: ${r.signingNote})`
             : 'Connected to Holochain',
         );
         try {
-          const b = await hcListBookmarks(r.client);
-          setBookmarks(b);
-          const c = await hcListContacts(r.client);
-          setContacts(c);
-          const h = await hcListHistory(r.client);
-          setHistoryRows(h);
-          const sl = await hcListSharedLinks(r.client);
-          setSharedLinks(sl);
+          if (contactHolochainSync) {
+            const c = await hcListContacts(r.client);
+            setContacts(c);
+          }
           const sp = await hcListSharedPages(r.client);
           setSharedPages(sp);
+          if (sharedLinkHolochainSync) {
+            const sl = await hcListSharedLinks(r.client);
+            setSharedLinks(sl);
+          }
         } catch (e) {
           console.error(e);
           setHcStatus((s) => `${s} \u2014 zome read failed (see console).`);
         }
       } else {
+        setHcLastError(r.reason);
         setHcStatus(
           hasHoloConfig
             ? `Demo fallback (retrying): ${r.reason}`
             : `Demo mode: ${r.reason}`,
         );
       }
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      setHcLastError(msg);
+      setHcStatus(hasHoloConfig ? `Demo fallback (retrying): ${msg}` : `Demo mode: ${msg}`);
     } finally {
       hcConnectingRef.current = false;
       setHcConnecting(false);
     }
-  }, [hc, hasHoloConfig]);
+  }, [hc, hasHoloConfig, contactHolochainSync, sharedLinkHolochainSync]);
 
   // Auto-connect on panel change if needed
   useEffect(() => {
@@ -334,20 +371,129 @@ export const HolochainProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     return () => window.clearInterval(t);
   }, [hasHoloConfig, hc, connectHolo]);
 
+  // When Holochain sync is on, merge local-only URLs onto the chain once per connection, then refresh list.
+  useEffect(() => {
+    if (!bookmarkHolochainSync) {
+      bookmarkMergedForHcRef.current = null;
+      return;
+    }
+    if (!hc) return;
+    if (bookmarkMergedForHcRef.current === hc) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const chain = await hcListBookmarks(hc);
+        if (cancelled) return;
+        const chainUrls = new Set(chain.map((b) => b.url));
+        const localOnly = demoBookmarksRef.current.filter((b) => !chainUrls.has(b.url));
+        for (const b of localOnly) {
+          if (cancelled) return;
+          await hcCreateBookmark(hc, {
+            url: b.url,
+            title: b.title,
+            created_at_ms: Date.now(),
+          });
+        }
+        if (!cancelled) {
+          setBookmarks(await hcListBookmarks(hc));
+          bookmarkMergedForHcRef.current = hc;
+        }
+      } catch (e) {
+        console.error(e);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [hc, bookmarkHolochainSync]);
+
+  useEffect(() => {
+    if (!contactHolochainSync) {
+      contactMergedForHcRef.current = null;
+      return;
+    }
+    if (!hc) return;
+    if (contactMergedForHcRef.current === hc) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const chain = await hcListContacts(hc);
+        if (cancelled) return;
+        const keys = new Set(chain.map((c) => c.peer_agent_pubkey_b64));
+        const localOnly = demoContactsRef.current.filter((c) => c.peerKey.trim() && !keys.has(c.peerKey.trim()));
+        for (const c of localOnly) {
+          if (cancelled) return;
+          await hcCreateContact(hc, {
+            display_name: c.name,
+            peer_agent_pubkey_b64: c.peerKey.trim(),
+            invite_proof_b64: c.proof || '',
+            created_at_ms: Date.now(),
+          });
+        }
+        if (!cancelled) {
+          setContacts(await hcListContacts(hc));
+          contactMergedForHcRef.current = hc;
+        }
+      } catch (e) {
+        console.error(e);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [hc, contactHolochainSync]);
+
+  useEffect(() => {
+    if (!sharedLinkHolochainSync) {
+      sharedLinkMergedForHcRef.current = null;
+      return;
+    }
+    if (!hc) return;
+    if (sharedLinkMergedForHcRef.current === hc) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const chain = await hcListSharedLinks(hc);
+        if (cancelled) return;
+        const urls = new Set(chain.map((l) => l.url));
+        const localOnly = demoSharedLinksRef.current.filter((l) => !urls.has(l.url));
+        for (const l of localOnly) {
+          if (cancelled) return;
+          await hcCreateSharedLink(hc, {
+            url: l.url,
+            title: l.title,
+            description: l.description,
+            tags: l.tags,
+            shared_at_ms: Date.now(),
+          });
+        }
+        if (!cancelled) {
+          setSharedLinks(await hcListSharedLinks(hc));
+          sharedLinkMergedForHcRef.current = hc;
+        }
+      } catch (e) {
+        console.error(e);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [hc, sharedLinkHolochainSync]);
+
   // ─── Mirror effects ─────────────────────────────────────────
   useEffect(() => {
-    if (!hc || pendingOps.length > 0) return;
+    if (!hc || !bookmarkHolochainSync || pendingOps.length > 0) return;
     const d = mirrorBookmarks(bookmarks);
     setDemoBookmarks(d);
     saveJson(LS_BOOKMARKS, d);
-  }, [hc, bookmarks, pendingOps.length]);
+  }, [hc, bookmarkHolochainSync, bookmarks, pendingOps.length]);
 
   useEffect(() => {
-    if (!hc || pendingOps.length > 0) return;
+    if (!hc || !contactHolochainSync || pendingOps.length > 0) return;
     const d = mirrorContacts(contacts);
     setDemoContacts(d);
     saveJson(LS_CONTACTS, d);
-  }, [hc, contacts, pendingOps.length]);
+  }, [hc, contactHolochainSync, contacts, pendingOps.length]);
 
   useEffect(() => {
     if (!hc || pendingOps.length > 0) return;
@@ -359,18 +505,11 @@ export const HolochainProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   }, [hc, chatMessages, threadId, pendingOps.length]);
 
   useEffect(() => {
-    if (!hc || pendingOps.length > 0) return;
-    const d = mirrorHistory(historyRows);
-    setDemoHistory(d);
-    saveJson(LS_HISTORY, d);
-  }, [hc, historyRows, pendingOps.length]);
-
-  useEffect(() => {
-    if (!hc || pendingOps.length > 0) return;
+    if (!hc || !sharedLinkHolochainSync || pendingOps.length > 0) return;
     const d = mirrorSharedLinks(sharedLinks);
     setDemoSharedLinks(d);
     saveJson(LS_SHARED_LINKS, d);
-  }, [hc, sharedLinks, pendingOps.length]);
+  }, [hc, sharedLinkHolochainSync, sharedLinks, pendingOps.length]);
 
   // ─── Pending ops replay ─────────────────────────────────────
   useEffect(() => {
@@ -382,10 +521,25 @@ export const HolochainProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       for (let i = 0; i < remaining.length; i += 1) {
         const op = remaining[i];
         try {
+          if (op.kind === 'history') {
+            applied += 1;
+            continue;
+          }
+          if (op.kind === 'bookmark' && !bookmarkHolochainSync) {
+            applied += 1;
+            continue;
+          }
+          if (op.kind === 'contact' && !contactHolochainSync) {
+            applied += 1;
+            continue;
+          }
+          if (op.kind === 'shared_link' && !sharedLinkHolochainSync) {
+            applied += 1;
+            continue;
+          }
           if (op.kind === 'bookmark') await hcCreateBookmark(hc, op.payload);
           else if (op.kind === 'contact') await hcCreateContact(hc, op.payload);
           else if (op.kind === 'chat') await hcSendChat(hc, op.payload);
-          else if (op.kind === 'history') await hcCreateHistory(hc, op.payload);
           else if (op.kind === 'shared_link') await hcCreateSharedLink(hc, op.payload);
           applied += 1;
         } catch {
@@ -399,18 +553,17 @@ export const HolochainProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       if (applied > 0) {
         setPendingOps([]);
         try {
-          setBookmarks(await hcListBookmarks(hc));
-          setContacts(await hcListContacts(hc));
+          if (bookmarkHolochainSync) setBookmarks(await hcListBookmarks(hc));
+          if (contactHolochainSync) setContacts(await hcListContacts(hc));
           setChatMessages(await hcListThread(hc, threadId));
-          setHistoryRows(await hcListHistory(hc));
-          setSharedLinks(await hcListSharedLinks(hc));
+          if (sharedLinkHolochainSync) setSharedLinks(await hcListSharedLinks(hc));
           setSharedPages(await hcListSharedPages(hc));
         } catch { /* best-effort */ }
         setHcStatus(`Connected to Holochain (synced ${applied} queued op${applied === 1 ? '' : 's'})`);
       }
       replayInFlightRef.current = false;
     })();
-  }, [hc, pendingOps, threadId]);
+  }, [hc, pendingOps, threadId, bookmarkHolochainSync, contactHolochainSync, sharedLinkHolochainSync]);
 
   // ─── localStorage persistence ───────────────────────────────
   useEffect(() => { saveJson(LS_BOOKMARKS, demoBookmarks); }, [demoBookmarks]);
@@ -445,10 +598,8 @@ export const HolochainProvider: React.FC<{ children: React.ReactNode }> = ({ chi
           const line = `${pickWelcomeLine(id.displayName)}`;
           console.info('[startup-greeting]', line);
         }
-        playTranceBed();
       } catch {
         if (done) return;
-        playTranceBed();
         console.info('[startup-greeting]', 'Welcome back. HoloBro missed you.');
       }
     };
@@ -490,12 +641,43 @@ export const HolochainProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   }, [url, browserSettings]);
 
   // ─── CRUD operations ───────────────────────────────────────
+  const setBookmarkHolochainSync = useCallback((enabled: boolean) => {
+    localStorage.setItem(LS_BOOKMARK_HOLOCHAIN_SYNC, enabled ? '1' : '0');
+    setBookmarkHolochainSyncState(enabled);
+    if (!enabled) {
+      setPendingOps((prev) => prev.filter((o) => o.kind !== 'bookmark'));
+      bookmarkMergedForHcRef.current = null;
+    }
+  }, []);
+
+  const setContactHolochainSync = useCallback((enabled: boolean) => {
+    localStorage.setItem(LS_CONTACT_HOLOCHAIN_SYNC, enabled ? '1' : '0');
+    setContactHolochainSyncState(enabled);
+    if (!enabled) {
+      setPendingOps((prev) => prev.filter((o) => o.kind !== 'contact'));
+      contactMergedForHcRef.current = null;
+    }
+  }, []);
+
+  const setSharedLinkHolochainSync = useCallback((enabled: boolean) => {
+    localStorage.setItem(LS_SHARED_LINK_HOLOCHAIN_SYNC, enabled ? '1' : '0');
+    setSharedLinkHolochainSyncState(enabled);
+    if (!enabled) {
+      setPendingOps((prev) => prev.filter((o) => o.kind !== 'shared_link'));
+      sharedLinkMergedForHcRef.current = null;
+    }
+  }, []);
+
   const addBookmark = useCallback(async () => {
     const u = normalizeUrl(url);
     const title = (() => { try { return new URL(u).hostname; } catch { return u; } })();
     const now = Date.now();
     const payload = { url: u, title, created_at_ms: now };
     bumpCookieJar();
+    if (!bookmarkHolochainSync) {
+      setDemoBookmarks((prev) => [...prev, { url: u, title }]);
+      return;
+    }
     if (hc) {
       try {
         await hcCreateBookmark(hc, payload);
@@ -508,16 +690,20 @@ export const HolochainProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       setDemoBookmarks((prev) => [...prev, { url: u, title }]);
       setPendingOps((prev) => [...prev, { kind: 'bookmark', payload }]);
     }
-  }, [url, hc, bumpCookieJar]);
+  }, [url, hc, bookmarkHolochainSync, bumpCookieJar]);
 
   const removeBookmark = useCallback(async (hash: ActionHash | undefined, urlStr: string) => {
+    if (!bookmarkHolochainSync) {
+      setDemoBookmarks((prev) => prev.filter((b) => b.url !== urlStr));
+      return;
+    }
     if (hc && hash) {
       await hcDeleteBookmark(hc, hash);
       setBookmarks(await hcListBookmarks(hc));
     } else {
       setDemoBookmarks((prev) => prev.filter((b) => b.url !== urlStr));
     }
-  }, [hc]);
+  }, [hc, bookmarkHolochainSync]);
 
   const addContact = useCallback(async (name: string, peerKey: string, proof: string) => {
     const now = Date.now();
@@ -527,6 +713,10 @@ export const HolochainProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       invite_proof_b64: proof || '',
       created_at_ms: now,
     };
+    if (!contactHolochainSync) {
+      setDemoContacts((prev) => [...prev, { name, peerKey, proof }]);
+      return;
+    }
     if (hc) {
       try {
         await hcCreateContact(hc, payload);
@@ -539,7 +729,7 @@ export const HolochainProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       setDemoContacts((prev) => [...prev, { name, peerKey, proof }]);
       setPendingOps((prev) => [...prev, { kind: 'contact', payload }]);
     }
-  }, [hc]);
+  }, [hc, contactHolochainSync]);
 
   const sendChat = useCallback(async () => {
     const body = chatInput.trim();
@@ -566,42 +756,25 @@ export const HolochainProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   const recordNavigation = useCallback(async (navUrl: string) => {
     const title = (() => { try { return new URL(navUrl).hostname; } catch { return navUrl; } })();
     const now = Date.now();
-    const payload = { url: navUrl, title, visited_at_ms: now };
-    if (hc) {
-      try {
-        await hcCreateHistory(hc, payload);
-        setHistoryRows(await hcListHistory(hc));
-      } catch {
-        setPendingOps((prev) => [...prev, { kind: 'history', payload }]);
-        setHcStatus('Connected (history queued for sync)');
-      }
-    } else {
-      setDemoHistory((prev) => [...prev, { url: navUrl, title, visited_at_ms: now }]);
-      setPendingOps((prev) => [...prev, { kind: 'history', payload }]);
-    }
-  }, [hc]);
+    setDemoHistory((prev) => [...prev, { url: navUrl, title, visited_at_ms: now }]);
+  }, []);
 
-  const removeHistory = useCallback(async (hash: ActionHash | undefined, urlStr: string, visitedAt: number) => {
-    if (hc && hash) {
-      await hcDeleteHistory(hc, hash);
-      setHistoryRows(await hcListHistory(hc));
-    } else {
-      setDemoHistory((prev) => prev.filter((h) => !(h.url === urlStr && h.visited_at_ms === visitedAt)));
-    }
-  }, [hc]);
+  const removeHistory = useCallback(async (_hash: ActionHash | undefined, urlStr: string, visitedAt: number) => {
+    setDemoHistory((prev) => prev.filter((h) => !(h.url === urlStr && h.visited_at_ms === visitedAt)));
+  }, []);
 
   const clearAllHistory = useCallback(async () => {
-    if (hc) {
-      await hcClearHistory(hc);
-      setHistoryRows([]);
-    }
     setDemoHistory([]);
     saveJson(LS_HISTORY, []);
-  }, [hc]);
+  }, []);
 
   const shareLink = useCallback(async (linkUrl: string, title: string, description: string, tags: string) => {
     const now = Date.now();
     const payload = { url: linkUrl, title, description, tags, shared_at_ms: now };
+    if (!sharedLinkHolochainSync) {
+      setDemoSharedLinks((prev) => [...prev, { url: linkUrl, title, description, tags, shared_at_ms: now }]);
+      return;
+    }
     if (hc) {
       try {
         await hcCreateSharedLink(hc, payload);
@@ -614,7 +787,7 @@ export const HolochainProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       setDemoSharedLinks((prev) => [...prev, { url: linkUrl, title, description, tags, shared_at_ms: now }]);
       setPendingOps((prev) => [...prev, { kind: 'shared_link', payload }]);
     }
-  }, [hc]);
+  }, [hc, sharedLinkHolochainSync]);
 
   // ─── Video ──────────────────────────────────────────────────
   const pushSignal = useCallback(async (kind: string, payload: unknown) => {
@@ -693,7 +866,7 @@ export const HolochainProvider: React.FC<{ children: React.ReactNode }> = ({ chi
 
   // ─── Contact list (computed) ────────────────────────────────
   const contactList = useMemo<ContactDisplay[]>(() => {
-    if (hc) {
+    if (hc && contactHolochainSync) {
       return contacts.map((c) => ({
         id: c.peer_agent_pubkey_b64 || encodeHashToBase64(c.author),
         name: c.display_name,
@@ -707,18 +880,19 @@ export const HolochainProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       peerKey: c.peerKey,
       proof: c.proof,
     }));
-  }, [hc, contacts, demoContacts]);
+  }, [hc, contactHolochainSync, contacts, demoContacts]);
 
   // ─── Reconnect helper ──────────────────────────────────────
   const reconnect = useCallback(() => {
     setHc(null);
+    setHcLastError(null);
     setHcStatus('Reconnecting to Holochain\u2026');
     void connectHolo();
   }, [connectHolo]);
 
   // ─── Context value ─────────────────────────────────────────
   const value = useMemo<HolochainContextValue>(() => ({
-    hc, hcStatus, hcConnecting, hasHoloConfig, reconnect,
+    hc, hcStatus, hcConnecting, hasHoloConfig, hcLastError, reconnect,
     activePanel,
     url, setUrl, browserSettings, setBrowserSettings,
     fetchResult, fetchErr, fetchBusy,
@@ -726,11 +900,20 @@ export const HolochainProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     addBookmark: () => void addBookmark(),
     recordNavigation: (u: string) => void recordNavigation(u),
     shareLink,
-    bookmarks, demoBookmarks, removeBookmark: (h, u) => void removeBookmark(h, u),
-    historyRows, demoHistory,
+    bookmarks,
+    demoBookmarks,
+    bookmarkHolochainSync,
+    setBookmarkHolochainSync,
+    contactHolochainSync,
+    setContactHolochainSync,
+    sharedLinkHolochainSync,
+    setSharedLinkHolochainSync,
+    removeBookmark: (h, u) => void removeBookmark(h, u),
+    demoHistory,
     removeHistory: (h, u, v) => void removeHistory(h, u, v),
     clearAllHistory: () => void clearAllHistory(),
-    contactList, addContact: (n, pk, p) => void addContact(n, pk, p),
+    contactList,
+    addContact: (n, pk, p) => void addContact(n, pk, p),
     threadId, setThreadId, chatMessages, demoChat, chatInput, setChatInput,
     refreshThread: () => void refreshThread(), sendChat: () => void sendChat(),
     videoPeerB64, setVideoPeerB64, localVid, remoteVid, videoLog,
@@ -743,11 +926,19 @@ export const HolochainProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     startupGreetingEnabled, setStartupGreetingEnabled,
     pendingOps, navigateToPanel,
   }), [
-    hc, hcStatus, hcConnecting, hasHoloConfig, reconnect, activePanel,
+    hc, hcStatus, hcConnecting, hasHoloConfig, hcLastError, reconnect, activePanel,
     url, browserSettings, fetchResult, fetchErr, fetchBusy, fetchReader,
     addBookmark, recordNavigation, shareLink,
-    bookmarks, demoBookmarks, removeBookmark,
-    historyRows, demoHistory, removeHistory, clearAllHistory,
+    bookmarks,
+    demoBookmarks,
+    bookmarkHolochainSync,
+    setBookmarkHolochainSync,
+    contactHolochainSync,
+    setContactHolochainSync,
+    sharedLinkHolochainSync,
+    setSharedLinkHolochainSync,
+    removeBookmark,
+    demoHistory, removeHistory, clearAllHistory,
     contactList, addContact,
     threadId, chatMessages, demoChat, chatInput, refreshThread, sendChat,
     videoPeerB64, videoLog, startVideo, applyRemoteSignals, stopVideo, signalPollActive,

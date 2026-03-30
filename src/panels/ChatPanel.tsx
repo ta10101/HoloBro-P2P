@@ -1,6 +1,7 @@
 import { Suspense } from 'react'
 import { encodeHashToBase64 } from '@holochain/client'
-import type { ChatMessageRow } from '../holochain'
+import { HolochainEmptyHint } from '../components/HolochainEmptyHint'
+import { hcChatEncryptionConfigured, type ChatMessageRow } from '../holochain'
 import type { DemoChatLine } from '../lib/holoMirror'
 import { IrcDockPanel } from '../app/lazyPanels'
 
@@ -30,11 +31,23 @@ export function ChatPanel({
   return (
     <section className="panel">
       <h2>P2P chat (Holochain)</h2>
+      <HolochainEmptyHint />
       {!hc ? (
         <p className="hint">
           Demo transcript is kept in sync with the last conductor fetch for this thread; reconnect to load live messages.
         </p>
-      ) : null}
+      ) : hcChatEncryptionConfigured() ? (
+        <p className="hint">
+          Chat payloads are encrypted for this build (passphrase + thread id). Peers need the same{' '}
+          <code className="mono">VITE_HC_CHAT_PASSPHRASE</code> to read messages.
+        </p>
+      ) : (
+        <p className="hint">
+          No chat passphrase set — message bodies are stored on chain as plaintext. Set{' '}
+          <code className="mono">VITE_HC_CHAT_PASSPHRASE</code> in <code className="mono">.env.local</code> for AES-GCM
+          ciphertext.
+        </p>
+      )}
       <div className="row">
         <label>
           Thread

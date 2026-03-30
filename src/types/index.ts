@@ -93,6 +93,7 @@ export type PanelId =
   | 'contacts'
   | 'chat'
   | 'video'
+  | 'privacy'
   | 'weather'
   | 'assistant'
   | 'network'

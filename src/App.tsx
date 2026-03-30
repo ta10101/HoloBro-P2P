@@ -40,6 +40,7 @@ import { BookmarksPanel } from './panels/BookmarksPanel';
 import { HistoryPanel } from './panels/HistoryPanel';
 import { ContactsPanel } from './panels/ContactsPanel';
 import { ChatPanel } from './panels/ChatPanel';
+import { PrivacyPanel } from './panels/PrivacyPanel';
 import { VideoPanel } from './panels/VideoPanel';
 const P2PLibraryPanel = React.lazy(() =>
   import('./p2p/P2PLibraryPanel').then((m) => ({ default: m.P2PLibraryPanel })),
@@ -89,6 +90,8 @@ const BookmarksPanelWrapper: React.FC = () => {
       hc={Boolean(ctx.hc)}
       bookmarks={ctx.bookmarks}
       demoBookmarks={ctx.demoBookmarks}
+      bookmarkHolochainSync={ctx.bookmarkHolochainSync}
+      setBookmarkHolochainSync={ctx.setBookmarkHolochainSync}
       setUrl={ctx.setUrl}
       setTab={(t) => {
         // Map old Tab type to new PanelId
@@ -105,7 +108,6 @@ const HistoryPanelWrapper: React.FC = () => {
   return (
     <HistoryPanel
       hc={Boolean(ctx.hc)}
-      history={ctx.historyRows}
       demoHistory={ctx.demoHistory}
       setUrl={ctx.setUrl}
       setTab={(t) => {
@@ -122,6 +124,9 @@ const ContactsPanelWrapper: React.FC = () => {
   const ctx = useHolochain();
   return (
     <ContactsPanel
+      hc={Boolean(ctx.hc)}
+      contactHolochainSync={ctx.contactHolochainSync}
+      setContactHolochainSync={ctx.setContactHolochainSync}
       contactList={ctx.contactList}
       onAddContact={ctx.addContact}
     />
@@ -171,6 +176,8 @@ const P2PLibraryPanelWrapper: React.FC = () => {
         sharedLinks={ctx.sharedLinks}
         sharedPages={ctx.sharedPages}
         demoSharedLinks={ctx.demoSharedLinks}
+        sharedLinkHolochainSync={ctx.sharedLinkHolochainSync}
+        setSharedLinkHolochainSync={ctx.setSharedLinkHolochainSync}
         onShareLink={ctx.shareLink}
         setUrl={ctx.setUrl}
         setTab={(t) => {
@@ -187,6 +194,7 @@ const PANELS: Record<PanelId, React.ReactNode> = {
   browser:   <BrowserPanelWrapper />,
   bookmarks: <BookmarksPanelWrapper />,
   history:   <HistoryPanelWrapper />,
+  privacy:   <PrivacyPanel />,
   library:   <P2PLibraryPanelWrapper />,
   contacts:  <ContactsPanelWrapper />,
   chat:      <ChatPanelWrapper />,

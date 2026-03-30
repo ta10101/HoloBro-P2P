@@ -6,6 +6,7 @@ import { useAgentStore, useUIStore } from '../store';
 import { useAgentTotals } from '../hooks';
 import { StatusDot } from './ui';
 import { useHolochain } from '../providers/HolochainProvider';
+import { normalizeAppWebsocketUrl } from '../holochainConnect';
 import { HoloBroMiniSprite } from './HoloBroMiniSprite';
 import type { PanelId } from '../types';
 
@@ -102,6 +103,7 @@ const NAV_ITEMS: { id: PanelId; icon: string; label: string; badge?: boolean }[]
   { id: 'browser',   icon: '\u{1F310}', label: 'Browse' },
   { id: 'bookmarks', icon: '\u{1F516}', label: 'Marks' },
   { id: 'history',   icon: '\u{1F550}', label: 'History' },
+  { id: 'privacy',   icon: '\u{1F512}', label: 'Privacy' },
   { id: 'library',   icon: '\u{1F4DA}', label: 'Library' },
   { id: 'contacts',  icon: '\u{1F465}', label: 'Peers',   badge: true },
   { id: 'chat',      icon: '\u{1F4AC}', label: 'Chat',    badge: true },
@@ -113,7 +115,7 @@ const NAV_ITEMS: { id: PanelId; icon: string; label: string; badge?: boolean }[]
   { id: 'wanderer',  icon: '\u{1F3AD}', label: 'Wander' },
 ];
 
-const SEP_BEFORE: PanelId[] = ['contacts', 'weather', 'agents', 'wanderer'];
+const SEP_BEFORE: PanelId[] = ['privacy', 'contacts', 'weather', 'agents', 'wanderer'];
 
 export const Sidebar: React.FC = () => {
   const activePanel = useUIStore((s) => s.activePanel);
@@ -266,7 +268,8 @@ export const URLBar: React.FC<URLBarProps> = ({ onToggleInspector }) => {
   const goHome = useUIStore((s) => s.goHome);
   const PANEL_URLS: Partial<Record<PanelId, string>> = {
     browser:   'start.page', bookmarks: 'bookmarks',
-    history:   'history',    library:   'library.p2p',
+    history:   'history',    privacy:   'privacy.local',
+    library:   'library.p2p',
     contacts:  'peers.mesh', chat:      'chat.mesh',
     video:     'video.stream', weather: 'weather.local',
     assistant: 'ai.assistant', network: 'network.hub',
@@ -637,8 +640,14 @@ export const AgentStatusBar: React.FC = () => {
 // ── HolochainSetupPopup ─────────────────────────────────────
 const HolochainSetupPopup: React.FC<{ onClose: () => void }> = ({ onClose }) => {
   const ref = useRef<HTMLDivElement>(null);
-  const [wsUrl, setWsUrl] = useState(localStorage.getItem('holobro-hc-ws') || 'ws://localhost:8888');
-  const [appToken, setAppToken] = useState(localStorage.getItem('holobro-hc-token') || '');
+  const envWs = (import.meta.env.VITE_HC_APP_WS as string | undefined)?.trim();
+  const envTok = (import.meta.env.VITE_HC_APP_TOKEN as string | undefined)?.trim();
+  const [wsUrl, setWsUrl] = useState(
+    () => localStorage.getItem('holobro-hc-ws') || envWs || 'ws://127.0.0.1:8888',
+  );
+  const [appToken, setAppToken] = useState(
+    () => localStorage.getItem('holobro-hc-token') || envTok || '',
+  );
   const [saved, setSaved] = useState(false);
 
   useEffect(() => {
@@ -650,7 +659,8 @@ const HolochainSetupPopup: React.FC<{ onClose: () => void }> = ({ onClose }) => 
   }, [onClose]);
 
   const handleApply = () => {
-    localStorage.setItem('holobro-hc-ws', wsUrl);
+    const normalized = normalizeAppWebsocketUrl(wsUrl);
+    localStorage.setItem('holobro-hc-ws', normalized);
     localStorage.setItem('holobro-hc-token', appToken);
     setSaved(true);
     setTimeout(() => window.location.reload(), 800);
@@ -693,7 +703,7 @@ const HolochainSetupPopup: React.FC<{ onClose: () => void }> = ({ onClose }) => 
         <input
           value={wsUrl}
           onChange={(e) => setWsUrl(e.target.value)}
-          placeholder="ws://localhost:8888"
+          placeholder="ws://127.0.0.1:8888"
           style={{
             width: '100%', boxSizing: 'border-box',
             padding: '8px 10px', marginBottom: 12,
@@ -812,8 +822,8 @@ export const StatusBar: React.FC = () => {
         display: 'flex', alignItems: 'center', gap: 4,
         color: 'var(--cyan)', maxWidth: 280, overflow: 'hidden', textOverflow: 'ellipsis',
         whiteSpace: 'nowrap',
-      }} title={holo.hcStatus}>
-        {isConnected ? holo.hcStatus : 'Disconnected (demo storage)'}
+      }} title={holo.hcLastError ? `${holo.hcStatus} — ${holo.hcLastError}` : holo.hcStatus}>
+        {holo.hcStatus}
       </span>
       {holo.pendingOps.length > 0 && (
         <span style={{ display: 'flex', alignItems: 'center', gap: 4, color: 'var(--amber)' }}>

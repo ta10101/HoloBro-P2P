@@ -186,6 +186,8 @@ Open the URL Vite prints (default dev port is aligned with Tauri, often **1420**
 
 ## Holochain live mode
 
+**Data policy (what syncs by default):** see [docs/HOLOBRO_DATA_CLASSES.md](./docs/HOLOBRO_DATA_CLASSES.md). **Operator checklist (env, toggles, limits):** [docs/HOLOBRO_PRIVACY_OPERATORS.md](./docs/HOLOBRO_PRIVACY_OPERATORS.md). In short: **browsing history stays on device**; **bookmarks use Holochain only if you enable “Sync bookmarks to Holochain”** in the Bookmarks panel.
+
 1. Build zomes and pack DNA / hApp (WSL or Linux with `hc` recommended on Windows):
 
    ```bash
@@ -196,11 +198,11 @@ Open the URL Vite prints (default dev port is aligned with Tauri, often **1420**
 
 2. Install the `.happ` on your conductor and note the **app WebSocket URL** and **token**.
 
-3. Copy `.env.example` to **`.env.local`** and set `VITE_HC_APP_WS`, `VITE_HC_APP_TOKEN`, and optionally `VITE_HC_ADMIN_WS` for signing.
+3. Copy `.env.example` to **`.env.local`** and set `VITE_HC_APP_WS`, `VITE_HC_APP_TOKEN`, and optionally `VITE_HC_ADMIN_WS` for signing. Optional: **`VITE_HC_CHAT_PASSPHRASE`** so chat bodies are AES-GCM ciphertext on chain (share the same secret with peers).
 
 4. Restart `npm run tauri dev` (or rebuild the desktop app) so Vite embeds the env.
 
-Without those variables, HoloBro uses **demo `localStorage`** for bookmarks/contacts/chat.
+Without those variables, HoloBro uses **demo `localStorage`** for bookmarks/contacts/chat. With a conductor connected, bookmarks still stay **local** until you opt in to sync in the UI (see policy doc above).
 
 ---
 
@@ -210,11 +212,26 @@ Without those variables, HoloBro uses **demo `localStorage`** for bookmarks/cont
 |------|----------|
 | **Browser** | Address bar + embedded webview; optional fetch bridge, find, zoom, privacy toggles, SOCKS/Tor for embedded content. |
 | **Network** | IP / interface stats, traceroute (`tracert` / `traceroute`), rough HTTP download/upload speed sample. |
-| **Bookmarks** | Holochain DNA + demo storage when no conductor. |
+| **Bookmarks** | Local by default; optional Holochain sync + optional `VITE_HC_BOOKMARK_PASSPHRASE` for ciphertext on chain. |
 | **Contacts** | Trusted contacts with peer keys + optional invite proof. |
-| **Chat** | Threaded messages; demo mode offline. |
+| **Chat** | Threaded messages; optional AES-GCM on chain via `VITE_HC_CHAT_PASSPHRASE` (see `.env.example`). |
 | **Video** | WebRTC signaling via Holochain zome calls; Video tab auto-polls signals while open (TURN not included). |
 | **Assistant** | Ollama / OpenAI-compatible chat via Tauri backend. |
+
+### Product roadmap (slices)
+
+Implementation order is flexible; each slice should stay consistent with [docs/HOLOBRO_DATA_CLASSES.md](./docs/HOLOBRO_DATA_CLASSES.md).
+
+| Slice | Policy / data-class note |
+|-------|---------------------------|
+| **Browser / WebView** | Session and tabs stay **local**; embedded content uses user-controlled fetch/proxy — **no** default chain writes for browsing. |
+| **Network tools** | Probes are **local-only**; no Holochain payloads. |
+| **Bookmarks / contacts / P2P Library** | **Opt-in** DNA sync via panel toggles; Privacy panel + [HOLOBRO_PRIVACY_OPERATORS.md](./docs/HOLOBRO_PRIVACY_OPERATORS.md). |
+| **Chat** | Env passphrase (v1); richer keys — [HOLOBRO_CHAT_KEYS_SPIKE.md](./docs/HOLOBRO_CHAT_KEYS_SPIKE.md). |
+| **Video / WebRTC** | Signaling uses zomes when live; **TURN** not bundled — document ICE/metadata exposure for your threat model. |
+| **Assistant** | Transcripts **local** unless a future feature explicitly syncs to chain and updates the data-class table. |
+
+**Screenshots** in `public/screenshots/` may lag the current UI; replace when major panels (Privacy, setup) stabilize.
 
 ---
 
@@ -224,6 +241,9 @@ Without those variables, HoloBro uses **demo `localStorage`** for bookmarks/cont
 - `src-tauri/` — Tauri/Rust: webview, HTTP bridge, LLM, network tools  
 - `dnas/anon_browser/` — Holochain integrity + coordinator zomes  
 - `workdir/happ.yaml` — hApp manifest (`holobro`, role `anon_browser`)  
+- `docs/HOLOBRO_DATA_CLASSES.md` — data-class policy  
+- `docs/HOLOBRO_PRIVACY_OPERATORS.md` — env + toggles + checklist for operators  
+- `docs/HOLOBRO_CHAT_KEYS_SPIKE.md` — design note for future chat key models  
 - `scripts/` — WSL helpers for WASM zomes and `hc` pack  
 
 ---

@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { HolochainEmptyHint } from '../components/HolochainEmptyHint'
 import { encodeHashToBase64, type AppWebsocket } from '@holochain/client'
 import {
   hcSearchSharedPagesByUrl,
@@ -12,12 +13,24 @@ type Props = {
   sharedLinks: SharedLinkRow[]
   sharedPages: SharedPageRow[]
   demoSharedLinks: { url: string; title: string; description: string; tags: string; shared_at_ms: number }[]
+  sharedLinkHolochainSync: boolean
+  setSharedLinkHolochainSync: (enabled: boolean) => void
   onShareLink: (url: string, title: string, description: string, tags: string) => Promise<void>
   setUrl: (url: string) => void
   setTab: (tab: Tab) => void
 }
 
-export function P2PLibraryPanel({ hc, sharedLinks, sharedPages, demoSharedLinks, onShareLink, setUrl, setTab }: Props) {
+export function P2PLibraryPanel({
+  hc,
+  sharedLinks,
+  sharedPages,
+  demoSharedLinks,
+  sharedLinkHolochainSync,
+  setSharedLinkHolochainSync,
+  onShareLink,
+  setUrl,
+  setTab,
+}: Props) {
   const [shareUrl, setShareUrl] = useState('')
   const [shareTitle, setShareTitle] = useState('')
   const [shareDesc, setShareDesc] = useState('')
@@ -26,7 +39,14 @@ export function P2PLibraryPanel({ hc, sharedLinks, sharedPages, demoSharedLinks,
   const [searchResults, setSearchResults] = useState<SharedPageRow[]>([])
   const [activeView, setActiveView] = useState<'links' | 'pages' | 'search'>('links')
 
-  const links = hc ? sharedLinks : demoSharedLinks.map((l) => ({ ...l, action_hash: [] as unknown as SharedLinkRow['action_hash'], author: [] as unknown as SharedLinkRow['author'] }))
+  const useChainLinks = Boolean(hc && sharedLinkHolochainSync)
+  const links = useChainLinks
+    ? sharedLinks
+    : demoSharedLinks.map((l) => ({
+        ...l,
+        action_hash: [] as unknown as SharedLinkRow['action_hash'],
+        author: [] as unknown as SharedLinkRow['author'],
+      }))
 
   const handleShare = async () => {
     const u = shareUrl.trim()
@@ -47,8 +67,25 @@ export function P2PLibraryPanel({ hc, sharedLinks, sharedPages, demoSharedLinks,
   return (
     <section className="panel">
       <h2>P2P Library</h2>
+      <HolochainEmptyHint />
       <p className="hint">
-        Share links and cached pages with peers on the Holochain network. Browse what others have shared.
+        Cached pages and DHT search use the conductor when connected. <strong>Shared links</strong> publishing is opt-in
+        below.
+      </p>
+      <label className="row" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.75rem' }}>
+        <input
+          type="checkbox"
+          checked={sharedLinkHolochainSync}
+          onChange={(e) => setSharedLinkHolochainSync(e.target.checked)}
+        />
+        <span>Publish shared links to Holochain</span>
+      </label>
+      <p className="hint">
+        {sharedLinkHolochainSync
+          ? hc
+            ? 'New shares go to the DNA; the list merges chain + local until you connect.'
+            : 'Enabled — connect Holochain to publish; until then shares stay local.'
+          : 'Shared links stay on this device only until you enable publishing above.'}
       </p>
 
       <div className="row" style={{ gap: '0.5rem', marginBottom: '1rem' }}>

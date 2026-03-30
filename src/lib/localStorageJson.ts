@@ -23,6 +23,10 @@ export function saveJson(key: string, value: unknown) {
 
 export const LS_BOOKMARKS = 'holobro-demo-bookmarks'
 export const LS_BOOKMARKS_LEGACY = 'hab-demo-bookmarks'
+/** User opted in to create/list bookmarks on Holochain (`'1'` / absent = off). See docs/HOLOBRO_DATA_CLASSES.md */
+export const LS_BOOKMARK_HOLOCHAIN_SYNC = 'holobro-bookmark-holochain-sync'
+export const LS_CONTACT_HOLOCHAIN_SYNC = 'holobro-contact-holochain-sync'
+export const LS_SHARED_LINK_HOLOCHAIN_SYNC = 'holobro-shared-link-holochain-sync'
 export const LS_CONTACTS = 'holobro-demo-contacts'
 export const LS_CONTACTS_LEGACY = 'hab-demo-contacts'
 export const LS_CHAT = 'holobro-demo-chat'

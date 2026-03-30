@@ -55,6 +55,7 @@ import {
   LS_COOKIE_JAR,
   LS_HISTORY,
   LS_PENDING_OPS,
+  LS_BOOKMARK_HOLOCHAIN_SYNC,
   LS_SHARED_LINKS,
   LS_STARTUP_GREETING,
   LS_WANDERER_ENABLED,
@@ -62,7 +63,7 @@ import {
 } from '../lib/localStorageJson'
 import { normalizeUrl } from '../lib/normalizeUrl'
 import { mergeThreadIntoDemoChat, mirrorBookmarks, mirrorContacts, mirrorHistory, mirrorSharedLinks } from '../lib/holoMirror'
-import { pickWelcomeLine, playTranceBed, type AppIdentityResult } from '../lib/startupGreeting'
+import { pickWelcomeLine, type AppIdentityResult } from '../lib/startupGreeting'
 import { BookmarksPanel } from '../panels/BookmarksPanel'
 import { ChatPanel } from '../panels/ChatPanel'
 import { ContactsPanel } from '../panels/ContactsPanel'
@@ -97,11 +98,23 @@ export function AppShell() {
   const [demoBookmarks, setDemoBookmarks] = useState<{ url: string; title: string }[]>(() =>
     loadJsonPrefer(LS_BOOKMARKS, LS_BOOKMARKS_LEGACY, []),
   )
+  const [bookmarkHolochainSync, setBookmarkHolochainSyncState] = useState(
+    () => localStorage.getItem(LS_BOOKMARK_HOLOCHAIN_SYNC) === '1',
+  )
+  const demoBookmarksRef = useRef(demoBookmarks)
+  demoBookmarksRef.current = demoBookmarks
+  const bookmarkMergedForHcRef = useRef<AppWebsocket | null>(null)
 
   const [contacts, setContacts] = useState<ContactRow[]>([])
   const [demoContacts, setDemoContacts] = useState<{ name: string; peerKey: string; proof: string }[]>(() =>
     loadJsonPrefer(LS_CONTACTS, LS_CONTACTS_LEGACY, []),
   )
+  const [contactHolochainSync, setContactHolochainSyncState] = useState(
+    () => localStorage.getItem(LS_CONTACT_HOLOCHAIN_SYNC) === '1',
+  )
+  const demoContactsRef = useRef(demoContacts)
+  demoContactsRef.current = demoContacts
+  const contactMergedForHcRef = useRef<AppWebsocket | null>(null)
 
   const [threadId, setThreadId] = useState('general')
   const [chatMessages, setChatMessages] = useState<ChatMessageRow[]>([])
@@ -119,6 +132,12 @@ export function AppShell() {
   const [demoSharedLinks, setDemoSharedLinks] = useState<{ url: string; title: string; description: string; tags: string; shared_at_ms: number }[]>(() =>
     loadJson(LS_SHARED_LINKS, []),
   )
+  const [sharedLinkHolochainSync, setSharedLinkHolochainSyncState] = useState(
+    () => localStorage.getItem(LS_SHARED_LINK_HOLOCHAIN_SYNC) === '1',
+  )
+  const demoSharedLinksRef = useRef(demoSharedLinks)
+  demoSharedLinksRef.current = demoSharedLinks
+  const sharedLinkMergedForHcRef = useRef<AppWebsocket | null>(null)
   const [sharedPages, setSharedPages] = useState<SharedPageRow[]>([])
 
   const localVid = useRef<HTMLVideoElement>(null)
@@ -148,7 +167,19 @@ export function AppShell() {
     const n = Number(raw ?? '0')
     return Number.isFinite(n) && n > 0 ? Math.min(999, Math.floor(n)) : 0
   })
-  const [pendingOps, setPendingOps] = useState<PendingOp[]>(() => loadJson<PendingOp[]>(LS_PENDING_OPS, []))
+  const [pendingOps, setPendingOps] = useState<PendingOp[]>(() => {
+    const raw = loadJson<PendingOp[]>(LS_PENDING_OPS, [])
+    const bookmarkSyncOn = localStorage.getItem(LS_BOOKMARK_HOLOCHAIN_SYNC) === '1'
+    const contactSyncOn = localStorage.getItem(LS_CONTACT_HOLOCHAIN_SYNC) === '1'
+    const sharedLinkSyncOn = localStorage.getItem(LS_SHARED_LINK_HOLOCHAIN_SYNC) === '1'
+    return raw.filter((o) => {
+      if (o.kind === 'history') return false
+      if (o.kind === 'bookmark' && !bookmarkSyncOn) return false
+      if (o.kind === 'contact' && !contactSyncOn) return false
+      if (o.kind === 'shared_link' && !sharedLinkSyncOn) return false
+      return true
+    })
+  })
 
   const bumpCookieJar = useCallback(() => {
     setCookieJarCount((c) => Math.min(999, c + 1))
@@ -172,16 +203,18 @@ export function AppShell() {
             : 'Connected to Holochain',
         )
         try {
-          const b = await hcListBookmarks(r.client)
-          setBookmarks(b)
-          const c = await hcListContacts(r.client)
-          setContacts(c)
+          if (contactHolochainSync) {
+            const c = await hcListContacts(r.client)
+            setContacts(c)
+          }
           const h = await hcListHistory(r.client)
           setHistoryRows(h)
-          const sl = await hcListSharedLinks(r.client)
-          setSharedLinks(sl)
           const sp = await hcListSharedPages(r.client)
           setSharedPages(sp)
+          if (sharedLinkHolochainSync) {
+            const sl = await hcListSharedLinks(r.client)
+            setSharedLinks(sl)
+          }
         } catch (e) {
           console.error(e)
           setHcStatus((s) => `${s} â€” zome read failed (see console).`)
@@ -197,7 +230,7 @@ export function AppShell() {
       hcConnectingRef.current = false
       setHcConnecting(false)
     }
-  }, [hc, hasHoloConfig])
+  }, [hc, hasHoloConfig, contactHolochainSync, sharedLinkHolochainSync])
 
   useEffect(() => {
     const needsHolo = tab === 'bookmarks' || tab === 'contacts' || tab === 'chat' || tab === 'video' || tab === 'history' || tab === 'p2p-library'
@@ -218,18 +251,126 @@ export function AppShell() {
   }, [hasHoloConfig, hc, connectHolo])
 
   useEffect(() => {
-    if (!hc || pendingOps.length > 0) return
+    if (!bookmarkHolochainSync) {
+      bookmarkMergedForHcRef.current = null
+      return
+    }
+    if (!hc) return
+    if (bookmarkMergedForHcRef.current === hc) return
+    let cancelled = false
+    void (async () => {
+      try {
+        const chain = await hcListBookmarks(hc)
+        if (cancelled) return
+        const chainUrls = new Set(chain.map((b) => b.url))
+        const localOnly = demoBookmarksRef.current.filter((b) => !chainUrls.has(b.url))
+        for (const b of localOnly) {
+          if (cancelled) return
+          await hcCreateBookmark(hc, {
+            url: b.url,
+            title: b.title,
+            created_at_ms: Date.now(),
+          })
+        }
+        if (!cancelled) {
+          setBookmarks(await hcListBookmarks(hc))
+          bookmarkMergedForHcRef.current = hc
+        }
+      } catch (e) {
+        console.error(e)
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [hc, bookmarkHolochainSync])
+
+  useEffect(() => {
+    if (!contactHolochainSync) {
+      contactMergedForHcRef.current = null
+      return
+    }
+    if (!hc) return
+    if (contactMergedForHcRef.current === hc) return
+    let cancelled = false
+    void (async () => {
+      try {
+        const chain = await hcListContacts(hc)
+        if (cancelled) return
+        const keys = new Set(chain.map((c) => c.peer_agent_pubkey_b64))
+        const localOnly = demoContactsRef.current.filter((c) => c.peerKey.trim() && !keys.has(c.peerKey.trim()))
+        for (const c of localOnly) {
+          if (cancelled) return
+          await hcCreateContact(hc, {
+            display_name: c.name,
+            peer_agent_pubkey_b64: c.peerKey.trim(),
+            invite_proof_b64: c.proof || '',
+            created_at_ms: Date.now(),
+          })
+        }
+        if (!cancelled) {
+          setContacts(await hcListContacts(hc))
+          contactMergedForHcRef.current = hc
+        }
+      } catch (e) {
+        console.error(e)
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [hc, contactHolochainSync])
+
+  useEffect(() => {
+    if (!sharedLinkHolochainSync) {
+      sharedLinkMergedForHcRef.current = null
+      return
+    }
+    if (!hc) return
+    if (sharedLinkMergedForHcRef.current === hc) return
+    let cancelled = false
+    void (async () => {
+      try {
+        const chain = await hcListSharedLinks(hc)
+        if (cancelled) return
+        const urls = new Set(chain.map((l) => l.url))
+        const localOnly = demoSharedLinksRef.current.filter((l) => !urls.has(l.url))
+        for (const l of localOnly) {
+          if (cancelled) return
+          await hcCreateSharedLink(hc, {
+            url: l.url,
+            title: l.title,
+            description: l.description,
+            tags: l.tags,
+            shared_at_ms: Date.now(),
+          })
+        }
+        if (!cancelled) {
+          setSharedLinks(await hcListSharedLinks(hc))
+          sharedLinkMergedForHcRef.current = hc
+        }
+      } catch (e) {
+        console.error(e)
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [hc, sharedLinkHolochainSync])
+
+  useEffect(() => {
+    if (!hc || !bookmarkHolochainSync || pendingOps.length > 0) return
     const d = mirrorBookmarks(bookmarks)
     setDemoBookmarks(d)
     saveJson(LS_BOOKMARKS, d)
-  }, [hc, bookmarks, pendingOps.length])
+  }, [hc, bookmarkHolochainSync, bookmarks, pendingOps.length])
 
   useEffect(() => {
-    if (!hc || pendingOps.length > 0) return
+    if (!hc || !contactHolochainSync || pendingOps.length > 0) return
     const d = mirrorContacts(contacts)
     setDemoContacts(d)
     saveJson(LS_CONTACTS, d)
-  }, [hc, contacts, pendingOps.length])
+  }, [hc, contactHolochainSync, contacts, pendingOps.length])
 
   useEffect(() => {
     if (!hc || pendingOps.length > 0) return
@@ -248,11 +389,11 @@ export function AppShell() {
   }, [hc, historyRows, pendingOps.length])
 
   useEffect(() => {
-    if (!hc || pendingOps.length > 0) return
+    if (!hc || !sharedLinkHolochainSync || pendingOps.length > 0) return
     const d = mirrorSharedLinks(sharedLinks)
     setDemoSharedLinks(d)
     saveJson(LS_SHARED_LINKS, d)
-  }, [hc, sharedLinks, pendingOps.length])
+  }, [hc, sharedLinkHolochainSync, sharedLinks, pendingOps.length])
 
   useEffect(() => {
     if (!hc || pendingOps.length === 0 || replayInFlightRef.current) return
@@ -263,14 +404,28 @@ export function AppShell() {
       for (let i = 0; i < remaining.length; i += 1) {
         const op = remaining[i]
         try {
+          if (op.kind === 'history') {
+            applied += 1
+            continue
+          }
+          if (op.kind === 'bookmark' && !bookmarkHolochainSync) {
+            applied += 1
+            continue
+          }
+          if (op.kind === 'contact' && !contactHolochainSync) {
+            applied += 1
+            continue
+          }
+          if (op.kind === 'shared_link' && !sharedLinkHolochainSync) {
+            applied += 1
+            continue
+          }
           if (op.kind === 'bookmark') {
             await hcCreateBookmark(hc, op.payload)
           } else if (op.kind === 'contact') {
             await hcCreateContact(hc, op.payload)
           } else if (op.kind === 'chat') {
             await hcSendChat(hc, op.payload)
-          } else if (op.kind === 'history') {
-            await hcCreateHistory(hc, op.payload)
           } else if (op.kind === 'shared_link') {
             await hcCreateSharedLink(hc, op.payload)
           }
@@ -286,11 +441,11 @@ export function AppShell() {
       if (applied > 0) {
         setPendingOps([])
         try {
-          setBookmarks(await hcListBookmarks(hc))
-          setContacts(await hcListContacts(hc))
+          if (bookmarkHolochainSync) setBookmarks(await hcListBookmarks(hc))
+          if (contactHolochainSync) setContacts(await hcListContacts(hc))
           setChatMessages(await hcListThread(hc, threadId))
           setHistoryRows(await hcListHistory(hc))
-          setSharedLinks(await hcListSharedLinks(hc))
+          if (sharedLinkHolochainSync) setSharedLinks(await hcListSharedLinks(hc))
           setSharedPages(await hcListSharedPages(hc))
         } catch {
           // Best-effort refresh after replay.
@@ -299,7 +454,7 @@ export function AppShell() {
       }
       replayInFlightRef.current = false
     })()
-  }, [hc, pendingOps, threadId])
+  }, [hc, pendingOps, threadId, bookmarkHolochainSync, contactHolochainSync, sharedLinkHolochainSync])
 
   useEffect(() => {
     saveJson(LS_BOOKMARKS, demoBookmarks)
@@ -357,11 +512,9 @@ export function AppShell() {
         const id = await invoke<AppIdentityResult>('app_identity')
         if (done) return
         const line = `${pickWelcomeLine(id.displayName)}`
-        playTranceBed()
         console.info('[startup-greeting]', line)
       } catch {
         if (done) return
-        playTranceBed()
         console.info('[startup-greeting]', 'Welcome back. HoloBro missed you.')
       }
     }
@@ -411,12 +564,43 @@ export function AppShell() {
     }
   }, [url, browserSettings])
 
+  const setBookmarkHolochainSync = (enabled: boolean) => {
+    localStorage.setItem(LS_BOOKMARK_HOLOCHAIN_SYNC, enabled ? '1' : '0')
+    setBookmarkHolochainSyncState(enabled)
+    if (!enabled) {
+      setPendingOps((prev) => prev.filter((o) => o.kind !== 'bookmark'))
+      bookmarkMergedForHcRef.current = null
+    }
+  }
+
+  const setContactHolochainSync = (enabled: boolean) => {
+    localStorage.setItem(LS_CONTACT_HOLOCHAIN_SYNC, enabled ? '1' : '0')
+    setContactHolochainSyncState(enabled)
+    if (!enabled) {
+      setPendingOps((prev) => prev.filter((o) => o.kind !== 'contact'))
+      contactMergedForHcRef.current = null
+    }
+  }
+
+  const setSharedLinkHolochainSync = (enabled: boolean) => {
+    localStorage.setItem(LS_SHARED_LINK_HOLOCHAIN_SYNC, enabled ? '1' : '0')
+    setSharedLinkHolochainSyncState(enabled)
+    if (!enabled) {
+      setPendingOps((prev) => prev.filter((o) => o.kind !== 'shared_link'))
+      sharedLinkMergedForHcRef.current = null
+    }
+  }
+
   const addBookmark = async () => {
     const u = normalizeUrl(url)
     const title = new URL(u).hostname
     const now = Date.now()
     const payload = { url: u, title, created_at_ms: now }
     bumpCookieJar()
+    if (!bookmarkHolochainSync) {
+      setDemoBookmarks((prev) => [...prev, { url: u, title }])
+      return
+    }
     if (hc) {
       try {
         await hcCreateBookmark(hc, payload)
@@ -432,6 +616,10 @@ export function AppShell() {
   }
 
   const removeBookmark = async (hash: ActionHash | undefined, urlStr: string) => {
+    if (!bookmarkHolochainSync) {
+      setDemoBookmarks((prev) => prev.filter((b) => b.url !== urlStr))
+      return
+    }
     if (hc && hash) {
       await hcDeleteBookmark(hc, hash)
       setBookmarks(await hcListBookmarks(hc))
@@ -447,6 +635,10 @@ export function AppShell() {
       peer_agent_pubkey_b64: peerKey.trim(),
       invite_proof_b64: proof || '',
       created_at_ms: now,
+    }
+    if (!contactHolochainSync) {
+      setDemoContacts((prev) => [...prev, { name, peerKey, proof }])
+      return
     }
     if (hc) {
       try {
@@ -524,6 +716,10 @@ export function AppShell() {
   const shareLink = async (linkUrl: string, title: string, description: string, tags: string) => {
     const now = Date.now()
     const payload = { url: linkUrl, title, description, tags, shared_at_ms: now }
+    if (!sharedLinkHolochainSync) {
+      setDemoSharedLinks((prev) => [...prev, { url: linkUrl, title, description, tags, shared_at_ms: now }])
+      return
+    }
     if (hc) {
       try {
         await hcCreateSharedLink(hc, payload)
@@ -622,7 +818,7 @@ export function AppShell() {
   }
 
   const contactList = useMemo<ContactDisplay[]>(() => {
-    if (hc) {
+    if (hc && contactHolochainSync) {
       return contacts.map((c) => ({
         id: c.peer_agent_pubkey_b64 || encodeHashToBase64(c.author),
         name: c.display_name,
@@ -636,7 +832,7 @@ export function AppShell() {
       peerKey: c.peerKey,
       proof: c.proof,
     }))
-  }, [hc, contacts, demoContacts])
+  }, [hc, contactHolochainSync, contacts, demoContacts])
 
   const signalPollActive = tab === 'video' && Boolean(hc)
 
@@ -825,6 +1021,8 @@ export function AppShell() {
               hc={Boolean(hc)}
               bookmarks={bookmarks}
               demoBookmarks={demoBookmarks}
+              bookmarkHolochainSync={bookmarkHolochainSync}
+              setBookmarkHolochainSync={setBookmarkHolochainSync}
               setUrl={setUrl}
               setTab={setTab}
               removeBookmark={removeBookmark}
@@ -833,7 +1031,6 @@ export function AppShell() {
           {tab === 'history' && (
             <HistoryPanel
               hc={Boolean(hc)}
-              history={historyRows}
               demoHistory={demoHistory}
               setUrl={setUrl}
               setTab={setTab}
@@ -848,6 +1045,8 @@ export function AppShell() {
                 sharedLinks={sharedLinks}
                 sharedPages={sharedPages}
                 demoSharedLinks={demoSharedLinks}
+                sharedLinkHolochainSync={sharedLinkHolochainSync}
+                setSharedLinkHolochainSync={setSharedLinkHolochainSync}
                 onShareLink={shareLink}
                 setUrl={setUrl}
                 setTab={setTab}
@@ -855,7 +1054,13 @@ export function AppShell() {
             </Suspense>
           )}
           {tab === 'contacts' && (
-            <ContactsPanel contactList={contactList} onAddContact={(n, pk, p) => void addContact(n, pk, p)} />
+            <ContactsPanel
+              hc={Boolean(hc)}
+              contactHolochainSync={contactHolochainSync}
+              setContactHolochainSync={setContactHolochainSync}
+              contactList={contactList}
+              onAddContact={(n, pk, p) => void addContact(n, pk, p)}
+            />
           )}
           {tab === 'chat' && (
             <ChatPanel
@@ -927,7 +1132,7 @@ export function AppShell() {
                 checked={startupGreetingEnabled}
                 onChange={(e) => setStartupGreetingEnabled(e.target.checked)}
               />
-              Startup greeting music (low 5s trance bed)
+              Startup greeting (console welcome line)
             </label>
             <div className="modal-actions">
               <button type="button" onClick={() => setAppSettingsOpen(false)}>

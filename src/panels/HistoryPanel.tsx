@@ -1,12 +1,10 @@
-import { encodeHashToBase64, type ActionHash } from '@holochain/client'
-import type { HistoryRow } from '../holochain'
+import type { ActionHash } from '@holochain/client'
 import type { Tab } from '../app/types'
 
 export type DemoHistoryEntry = { url: string; title: string; visited_at_ms: number }
 
 type Props = {
   hc: boolean
-  history: HistoryRow[]
   demoHistory: DemoHistoryEntry[]
   setUrl: (u: string) => void
   setTab: (t: Tab) => void
@@ -16,39 +14,30 @@ type Props = {
 
 export function HistoryPanel({
   hc,
-  history,
   demoHistory,
   setUrl,
   setTab,
   removeHistory,
   clearHistory,
 }: Props) {
-  const rows = hc
-    ? history.map((h) => ({
-        key: encodeHashToBase64(h.action_hash),
-        hash: h.action_hash,
-        url: h.url,
-        title: h.title,
-        visited_at_ms: h.visited_at_ms,
-      }))
-    : demoHistory.map((h, i) => ({
-        key: `demo-${i}`,
-        hash: undefined as ActionHash | undefined,
-        url: h.url,
-        title: h.title,
-        visited_at_ms: h.visited_at_ms,
-      }))
+  const rows = demoHistory.map((h, i) => ({
+    key: `local-${i}-${h.visited_at_ms}`,
+    hash: undefined as ActionHash | undefined,
+    url: h.url,
+    title: h.title,
+    visited_at_ms: h.visited_at_ms,
+  }))
 
   const sorted = rows.slice().sort((a, b) => b.visited_at_ms - a.visited_at_ms)
 
   return (
     <section className="panel">
       <h2>History</h2>
-      {!hc && (
-        <p className="hint">
-          Offline view shows locally cached history. Entries sync to Holochain when the conductor connects.
-        </p>
-      )}
+      <p className="hint">
+        {hc
+          ? 'History stays on this device only (not written to Holochain).'
+          : 'History is stored locally. Connect Holochain for bookmarks, chat, and library — not browsing history.'}
+      </p>
       <div className="row" style={{ marginBottom: '1rem' }}>
         <button
           type="button"
