@@ -72,7 +72,7 @@ pub async fn bundled_sandbox_start(
     }
 
     let work_dir = ensure_sandbox_workdir(&app)?;
-    let (rx, child) = app
+    let (mut rx, child) = app
         .shell()
         .sidecar(Path::new(crate::holochain_sidecar::HC_SIDECAR))
         .map_err(|e| e.to_string())?
