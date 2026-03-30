@@ -72,7 +72,7 @@ pub async fn bundled_sandbox_start(
     }
 
     let work_dir = ensure_sandbox_workdir(&app)?;
-    let (mut rx, child) = app
+    let (rx, child) = app
         .shell()
         .sidecar(Path::new(crate::holochain_sidecar::HC_SIDECAR))
         .map_err(|e| e.to_string())?
@@ -98,6 +98,7 @@ pub async fn bundled_sandbox_start(
                     eprintln!("[hc sandbox] error: {s}");
                     break;
                 }
+                _ => {}
             }
         }
     });
@@ -123,6 +124,8 @@ pub async fn bundled_sandbox_stop(
 }
 
 #[tauri::command]
-pub async fn bundled_sandbox_running(child_state: tauri::State<'_, BundledSandboxChild>) -> bool {
-    child_state.lock().await.is_some()
+pub async fn bundled_sandbox_running(
+    child_state: tauri::State<'_, BundledSandboxChild>,
+) -> Result<bool, String> {
+    Ok(child_state.lock().await.is_some())
 }
