@@ -1,5 +1,5 @@
 import { useCallback, useState } from 'react'
-import { invoke } from '@tauri-apps/api/core'
+import { safeInvoke as invoke, isTauri } from '../lib/tauri'
 
 type ShellExecResult = {
   command: string
@@ -15,7 +15,7 @@ export function TerminalMiniDock() {
   const [termOut, setTermOut] = useState<ShellExecResult | null>(null)
   const [termErr, setTermErr] = useState<string | null>(null)
   const [termHistory, setTermHistory] = useState<string[]>([])
-  const [open, setOpen] = useState(true)
+  const [open, setOpen] = useState(false)
 
   const runTerminal = useCallback(async () => {
     const cmd = termCommand.trim()
@@ -24,6 +24,7 @@ export function TerminalMiniDock() {
     setTermErr(null)
     setTermOut(null)
     try {
+      if (!isTauri()) throw new Error('Terminal requires the Tauri desktop app.')
       const r = await invoke<ShellExecResult>('shell_exec', {
         req: {
           command: cmd,
@@ -31,6 +32,7 @@ export function TerminalMiniDock() {
           timeoutSecs: 90,
         },
       })
+      if (!r) throw new Error('Terminal requires the Tauri desktop app')
       setTermOut(r)
       setTermHistory((prev) => {
         const cleaned = prev.filter((x) => x !== cmd)
@@ -43,53 +45,85 @@ export function TerminalMiniDock() {
     }
   }, [termCommand, termCwd])
 
+  // Collapsed: just a small tab
+  if (!open) {
+    return (
+      <button
+        className="terminal-tab-btn"
+        onClick={() => setOpen(true)}
+        title="Open Terminal"
+        type="button"
+      >
+        {'>_'}
+      </button>
+    )
+  }
+
   return (
-    <aside className={open ? 'terminal-mini-dock open' : 'terminal-mini-dock'} aria-label="Mini terminal">
-      <div className="terminal-mini-head">
-        <strong>Terminal</strong>
-        <button type="button" onClick={() => setOpen((v) => !v)}>
-          {open ? 'Hide' : 'Show'}
+    <aside className="terminal-dock" aria-label="Terminal">
+      {/* Header */}
+      <div className="terminal-dock-head">
+        <strong style={{ fontFamily: 'var(--font-mono)', fontSize: 11, letterSpacing: 1.5 }}>
+          {'>_'} TERMINAL
+        </strong>
+        <button type="button" className="terminal-close-btn" onClick={() => setOpen(false)} title="Hide terminal">
+          {'\u2715'}
         </button>
       </div>
-      {open ? (
-        <>
-          <div className="terminal-mini-row">
-            {termHistory.length ? (
-              <select value="" onChange={(e) => e.target.value && setTermCommand(e.target.value)}>
-                <option value="">History…</option>
-                {termHistory.map((cmd) => (
-                  <option key={cmd} value={cmd}>
-                    {cmd}
-                  </option>
-                ))}
-              </select>
-            ) : null}
-            <input
-              value={termCommand}
-              onChange={(e) => setTermCommand(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && void runTerminal()}
-              placeholder="Command"
-            />
-            <button type="button" disabled={termBusy} onClick={() => void runTerminal()}>
-              {termBusy ? 'Run…' : 'Run'}
-            </button>
-          </div>
-          <input
-            value={termCwd}
-            onChange={(e) => setTermCwd(e.target.value)}
-            placeholder="Working directory (optional)"
-          />
-          {termErr ? <p className="error">{termErr}</p> : null}
-          {termOut ? (
-            <div className="terminal-mini-out">
-              <p className="muted mono">{termOut.command}</p>
-              {termOut.exitCode !== null && termOut.exitCode !== 0 ? <p className="error">Exit code {termOut.exitCode}</p> : null}
-              <pre className="network-pre network-pre-large">{termOut.stdout || '(no stdout)'}</pre>
-              {termOut.stderr ? <pre className="network-pre network-pre-err">{termOut.stderr}</pre> : null}
+
+      {/* Command input row */}
+      <div className="terminal-input-row">
+        {termHistory.length > 0 && (
+          <select
+            value=""
+            onChange={(e) => e.target.value && setTermCommand(e.target.value)}
+            style={{ width: 70, flexShrink: 0 }}
+          >
+            <option value="">{'History\u2026'}</option>
+            {termHistory.map((cmd) => (
+              <option key={cmd} value={cmd}>{cmd}</option>
+            ))}
+          </select>
+        )}
+        <input
+          value={termCommand}
+          onChange={(e) => setTermCommand(e.target.value)}
+          onKeyDown={(e) => e.key === 'Enter' && void runTerminal()}
+          placeholder="Command"
+        />
+        <button type="button" disabled={termBusy} onClick={() => void runTerminal()}>
+          {termBusy ? 'Run\u2026' : 'Run'}
+        </button>
+      </div>
+
+      {/* CWD */}
+      <input
+        className="terminal-cwd"
+        value={termCwd}
+        onChange={(e) => setTermCwd(e.target.value)}
+        placeholder="Working directory (optional)"
+      />
+
+      {/* Output */}
+      <div className="terminal-output">
+        {termErr ? <p className="error" style={{ margin: 0, fontSize: 11 }}>{termErr}</p> : null}
+        {termOut ? (
+          <>
+            <div style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--muted)', marginBottom: 4 }}>
+              $ {termOut.command}
+              {termOut.exitCode !== null && termOut.exitCode !== 0
+                ? <span style={{ color: 'var(--pink)', marginLeft: 8 }}>exit {termOut.exitCode}</span>
+                : null}
             </div>
-          ) : null}
-        </>
-      ) : null}
+            <pre className="terminal-pre">{termOut.stdout || '(no output)'}</pre>
+            {termOut.stderr ? <pre className="terminal-pre terminal-pre-err">{termOut.stderr}</pre> : null}
+          </>
+        ) : (
+          <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--muted)', padding: '8px 0' }}>
+            Ready. Type a command and press Enter or Run.
+          </div>
+        )}
+      </div>
     </aside>
   )
 }

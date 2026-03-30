@@ -44,14 +44,18 @@ async function authorizeZomeSigningIfConfigured(client: AppWebsocket): Promise<s
 }
 
 export async function tryConnectHolo(): Promise<HoloConnectResult> {
-  const urlStr = import.meta.env.VITE_HC_APP_WS as string | undefined
-  const tokenRaw = import.meta.env.VITE_HC_APP_TOKEN as string | undefined
+  // Runtime overrides from localStorage (set via Holochain Setup popup)
+  const lsWs = (() => { try { return localStorage.getItem('holobro-hc-ws') } catch { return null } })()
+  const lsToken = (() => { try { return localStorage.getItem('holobro-hc-token') } catch { return null } })()
+
+  const urlStr = lsWs?.trim() || (import.meta.env.VITE_HC_APP_WS as string | undefined)
+  const tokenRaw = lsToken?.trim() || (import.meta.env.VITE_HC_APP_TOKEN as string | undefined)
 
   if (!urlStr?.trim() || !tokenRaw?.trim()) {
     return {
       ok: false,
       reason:
-        'Set VITE_HC_APP_WS and VITE_HC_APP_TOKEN (from your conductor / hc spin output).',
+        'Set VITE_HC_APP_WS and VITE_HC_APP_TOKEN (from your conductor / hc spin output), or use the Setup popup in the status bar.',
     }
   }
 

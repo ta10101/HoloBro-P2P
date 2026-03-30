@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import { invoke } from '@tauri-apps/api/core'
-import { openUrl } from '@tauri-apps/plugin-opener'
+import { safeInvoke as invoke, safeOpenUrl as openUrl, isTauri } from '../lib/tauri'
 
 export type LlmProvider = 'ollama' | 'openai'
 
@@ -104,10 +103,13 @@ export function AssistantPanel() {
     })
   }, [])
 
+  const DEMO_MSG = 'AI Assistant backend requires Tauri desktop app. Use the Agent Hub for browser-based AI chat.'
+
   const runHealth = useCallback(async () => {
     setHealthBusy(true)
     setHealth(null)
     try {
+      if (!isTauri()) { setHealth({ ok: false, backend: settings.provider, message: DEMO_MSG }); return }
       const r = await invoke<LlmHealthResult>('llm_health', {
         req: {
           baseUrl: settings.baseUrl.trim(),
@@ -116,7 +118,7 @@ export function AssistantPanel() {
           provider: settings.provider,
         },
       })
-      setHealth(r)
+      setHealth(r ?? { ok: false, backend: settings.provider, message: DEMO_MSG })
     } catch (e) {
       setHealth({
         ok: false,
@@ -133,6 +135,7 @@ export function AssistantPanel() {
     setModelsErr(null)
     setModels([])
     try {
+      if (!isTauri()) { setModelsErr(DEMO_MSG); setModelsBusy(false); return }
       const r = await invoke<{ models: LlmModelInfo[] }>('llm_list_models', {
         req: {
           baseUrl: settings.baseUrl.trim(),
@@ -141,6 +144,7 @@ export function AssistantPanel() {
           provider: settings.provider,
         },
       })
+      if (!r) { setModelsErr(DEMO_MSG); setModelsBusy(false); return }
       setModels(r.models ?? [])
       if (!r.models?.length) {
         setModelsErr('No models returned — install one or check the server.')
@@ -158,13 +162,14 @@ export function AssistantPanel() {
       setHealth(null)
       const s = loadAssistantSettings()
       try {
+        if (!isTauri()) { setHealth({ ok: false, backend: s.provider, message: DEMO_MSG }); setHealthBusy(false); return }
         const r = await invoke<LlmHealthResult>('llm_health', {
           baseUrl: s.baseUrl.trim(),
           apiKey: s.apiKey.trim() || null,
           timeoutSecs: 12,
           provider: s.provider,
         })
-        setHealth(r)
+        setHealth(r ?? { ok: false, backend: s.provider, message: DEMO_MSG })
       } catch (e) {
         setHealth({
           ok: false,
@@ -181,6 +186,7 @@ export function AssistantPanel() {
     setBusy(true)
     setOut('')
     try {
+      if (!isTauri()) { setOut(DEMO_MSG); setBusy(false); return }
       const text = await invoke<string>('llm_chat', {
         req: {
           baseUrl: settings.baseUrl.trim(),
@@ -191,7 +197,7 @@ export function AssistantPanel() {
           provider: settings.provider,
         },
       })
-      setOut(text)
+      setOut(text ?? DEMO_MSG)
     } catch (e) {
       setOut(e instanceof Error ? e.message : String(e))
     } finally {
@@ -208,6 +214,7 @@ export function AssistantPanel() {
     setPullBusy(true)
     setPullLog(null)
     try {
+      if (!isTauri()) { setPullLog(DEMO_MSG); setPullBusy(false); return }
       const msg = await invoke<string>('llm_pull_ollama', {
         req: {
           baseUrl: settings.baseUrl.trim(),
@@ -216,7 +223,7 @@ export function AssistantPanel() {
           timeoutSecs: settings.pullTimeoutSecs,
         },
       })
-      setPullLog(msg)
+      setPullLog(msg ?? DEMO_MSG)
       await runListModels()
     } catch (e) {
       setPullLog(e instanceof Error ? e.message : String(e))

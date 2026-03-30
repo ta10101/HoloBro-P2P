@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { invoke } from '@tauri-apps/api/core'
+import { safeInvoke as invoke, isTauri } from '../lib/tauri'
 
 type IrcNetworkPreset = {
   id: string
@@ -95,14 +95,17 @@ export function IrcDockPanel() {
     localStorage.setItem(LS_IRC_TLS, useTls ? '1' : '0')
   }, [nick, username, realname, networkId, channel, useTls])
 
+  const IRC_DEMO_MSG = 'IRC connects through the Tauri backend. Launch the desktop app with: cargo tauri dev — then IRC will work fully.'
+
   useEffect(() => {
-    if (!connected) return
+    if (!connected || !isTauri()) return
     const timer = window.setInterval(() => {
       void (async () => {
         try {
           const r = await invoke<IrcPollResult>('irc_poll', {
             req: { sessionId, limit: 200 },
           })
+          if (!r) return
           setConnected(r.connected)
           if (r.lines.length) setLog((prev) => [...prev, ...r.lines].slice(-1500))
           if (!r.connected) setStatus('Disconnected')
@@ -116,6 +119,7 @@ export function IrcDockPanel() {
   }, [connected, sessionId])
 
   const connect = async () => {
+    if (!isTauri()) { setStatus(IRC_DEMO_MSG); return }
     setBusy(true)
     try {
       const r = await invoke<{ connected: boolean; message: string }>('irc_connect', {
@@ -129,11 +133,12 @@ export function IrcDockPanel() {
           useTls,
         },
       })
+      if (!r) { setStatus(IRC_DEMO_MSG); return }
       setConnected(r.connected)
       setStatus(r.message)
     } catch (e) {
       setConnected(false)
-      setStatus(String(e))
+      setStatus(e instanceof Error ? e.message : String(e))
     } finally {
       setBusy(false)
     }

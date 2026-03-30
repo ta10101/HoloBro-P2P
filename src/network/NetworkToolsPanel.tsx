@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import { invoke } from '@tauri-apps/api/core'
+import { safeInvoke as invoke, isTauri } from '../lib/tauri'
 
 export type IpInterfaceRow = {
   name: string
@@ -231,11 +231,15 @@ export function NetworkToolsPanel() {
   const [nmapOut, setNmapOut] = useState<NmapScanResult | null>(null)
   const [diag, setDiag] = useState<RuntimeDiagnostics | null>(null)
 
+  const DEMO_ERR = 'Network tools require the Tauri desktop app. Run with: cargo tauri dev'
+
   const refreshIp = useCallback(async () => {
     setIpBusy(true)
     setIpErr(null)
     try {
+      if (!isTauri()) throw new Error(DEMO_ERR)
       const r = await invoke<IpStatsResult>('net_ip_stats')
+      if (!r) throw new Error(DEMO_ERR)
       setIpStats(r)
       const localCandidate =
         r.interfaces.find((i) => i.family === 'ipv4' && !i.isLoopback)?.addr ||
@@ -248,7 +252,7 @@ export function NetworkToolsPanel() {
         wanIp: r.public?.ip || '—',
       })
     } catch (e) {
-      setIpErr(String(e))
+      setIpErr(String(e instanceof Error ? e.message : e))
       setIpStats(null)
       setIdentity((prev) => ({ ...prev, wanIp: 'unavailable' }))
     } finally {
@@ -261,12 +265,14 @@ export function NetworkToolsPanel() {
     setTraceErr(null)
     setTraceOut(null)
     try {
+      if (!isTauri()) throw new Error(DEMO_ERR)
       const r = await invoke<TracerouteResult>('net_traceroute', {
         req: { host: traceHost.trim(), maxHops: traceHops },
       })
+      if (!r) throw new Error(DEMO_ERR)
       setTraceOut(r)
     } catch (e) {
-      setTraceErr(String(e))
+      setTraceErr(e instanceof Error ? e.message : String(e))
     } finally {
       setTraceBusy(false)
     }
@@ -279,12 +285,14 @@ export function NetworkToolsPanel() {
     const downloadBytes = Math.round(Math.max(0.25, dlMb) * 1024 * 1024)
     const uploadBytes = Math.round(Math.max(16, ulKb) * 1024)
     try {
+      if (!isTauri()) throw new Error(DEMO_ERR)
       const r = await invoke<SpeedTestResult>('net_speed_test', {
         req: { downloadBytes, uploadBytes },
       })
+      if (!r) throw new Error(DEMO_ERR)
       setSpeedOut(r)
     } catch (e) {
-      setSpeedErr(String(e))
+      setSpeedErr(e instanceof Error ? e.message : String(e))
     } finally {
       setSpeedBusy(false)
     }
@@ -295,12 +303,14 @@ export function NetworkToolsPanel() {
     setDnsErr(null)
     setDnsOut(null)
     try {
+      if (!isTauri()) throw new Error(DEMO_ERR)
       const r = await invoke<DnsLookupResult>('net_dns_lookup', {
         req: { name: dnsName.trim(), recordType: dnsType.trim() },
       })
+      if (!r) throw new Error(DEMO_ERR)
       setDnsOut(r)
     } catch (e) {
-      setDnsErr(String(e))
+      setDnsErr(e instanceof Error ? e.message : String(e))
     } finally {
       setDnsBusy(false)
     }
@@ -311,12 +321,14 @@ export function NetworkToolsPanel() {
     setBgpErr(null)
     setBgpOut(null)
     try {
+      if (!isTauri()) throw new Error(DEMO_ERR)
       const r = await invoke<NetJsonHttpResult>('net_bgp_lookup', {
         req: { ip: bgpIp.trim() },
       })
+      if (!r) throw new Error(DEMO_ERR)
       setBgpOut(r)
     } catch (e) {
-      setBgpErr(String(e))
+      setBgpErr(e instanceof Error ? e.message : String(e))
     } finally {
       setBgpBusy(false)
     }
@@ -327,12 +339,14 @@ export function NetworkToolsPanel() {
     setRdapErr(null)
     setRdapOut(null)
     try {
+      if (!isTauri()) throw new Error(DEMO_ERR)
       const r = await invoke<NetJsonHttpResult>('net_rdap_lookup', {
         req: { query: rdapQuery.trim() },
       })
+      if (!r) throw new Error(DEMO_ERR)
       setRdapOut(r)
     } catch (e) {
-      setRdapErr(String(e))
+      setRdapErr(e instanceof Error ? e.message : String(e))
     } finally {
       setRdapBusy(false)
     }
@@ -343,6 +357,7 @@ export function NetworkToolsPanel() {
     setNmapErr(null)
     setNmapOut(null)
     try {
+      if (!isTauri()) throw new Error(DEMO_ERR)
       const r = await invoke<NmapScanResult>('net_nmap_scan', {
         req: {
           target: nmapTarget.trim(),
@@ -352,9 +367,10 @@ export function NetworkToolsPanel() {
           extraArgs: nmapExtra.trim() || undefined,
         },
       })
+      if (!r) throw new Error(DEMO_ERR)
       setNmapOut(r)
     } catch (e) {
-      setNmapErr(String(e))
+      setNmapErr(e instanceof Error ? e.message : String(e))
     } finally {
       setNmapBusy(false)
     }
@@ -362,8 +378,9 @@ export function NetworkToolsPanel() {
 
   const refreshDiagnostics = useCallback(async () => {
     try {
+      if (!isTauri()) return
       const r = await invoke<RuntimeDiagnostics>('net_runtime_diagnostics')
-      setDiag(r)
+      if (r) setDiag(r)
     } catch (e) {
       console.warn('Dependency diagnostics failed:', e)
       setDiag(null)

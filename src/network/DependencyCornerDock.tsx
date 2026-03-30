@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import { invoke } from '@tauri-apps/api/core'
+import { safeInvoke as invoke, isTauri } from '../lib/tauri'
 import type { RuntimeDiagnostics } from './NetworkToolsPanel'
 
 export function DependencyCornerDock() {
@@ -8,9 +8,11 @@ export function DependencyCornerDock() {
   const [busy, setBusy] = useState(false)
 
   const refresh = useCallback(async () => {
+    if (!isTauri()) { setBackendReady(false); return }
     setBusy(true)
     try {
       const r = await invoke<RuntimeDiagnostics>('net_runtime_diagnostics')
+      if (!r) { setBackendReady(false); return }
       setDiag(r)
       setBackendReady(true)
     } catch {

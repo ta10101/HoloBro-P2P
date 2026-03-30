@@ -1,98 +1,23 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
-import { invoke } from '@tauri-apps/api/core'
-import { openUrl } from '@tauri-apps/plugin-opener'
+import { safeInvoke as invoke, safeOpenUrl as openUrl } from '../lib/tauri'
+import {
+  type BrowserSettings,
+  type ContentProxyPreset,
+  type FetchBridgeResult,
+  JONDO_DEFAULT_HTTP,
+  effectiveContentProxyUrl,
+  isContentProxyActive,
+  saveBrowserSettings,
+} from './browserSettings'
 
-/** Embedded page proxy: Off, Tor SOCKS, [AN.ON / JonDo / JAP](https://anon.inf.tu-dresden.de/index_en.html) local HTTP, or arbitrary URL. */
-export type ContentProxyPreset = 'off' | 'tor' | 'jondo' | 'custom'
-
-export type BrowserSettings = {
-  zoom: number
-  /** Tor / SOCKS or custom HTTP/SOCKS URL (used when preset is `tor` or `custom`). */
-  torProxyUrl: string
-  /**
-   * JonDo / JAP local HTTP proxy when preset is `jondo` (JonDo often defaults to port 4001 — check your client).
-   * @see https://anon.inf.tu-dresden.de/index_en.html
-   */
-  jondoProxyUrl: string
-  /** Route embedded page through selected proxy; choose `off` for a normal direct connection. */
-  contentProxyPreset: ContentProxyPreset
-  useProxyForFetch: boolean
-  /** HTTP bridge request timeout (seconds). */
-  fetchTimeoutSecs: number
-  /** Max response size for Fetch bridge (KiB). */
-  fetchMaxKb: number
-  /** Use WebView2 default User-Agent (Edge-class) — avoids a unique custom token. */
-  stealthUserAgent: boolean
-  /** Document-start script: block WebRTC constructors & lock down getUserMedia (best-effort). */
-  privacyHardenContent: boolean
-  /** Best-effort ad/tracker filtering for embedded pages. */
-  blockAdsContent: boolean
-  /** NoScript-like mode: block page JavaScript execution. */
-  blockScriptsContent: boolean
-  /** Non-persistent WebView2 profile for the embedded page. */
-  contentIncognito: boolean
-}
-
-const JONDO_DEFAULT_HTTP = 'http://127.0.0.1:4001'
-
-export function isContentProxyActive(s: BrowserSettings): boolean {
-  return s.contentProxyPreset !== 'off'
-}
-
-/** URL passed to WebView2 / fetch bridge when a proxy preset is active. */
-export function effectiveContentProxyUrl(s: BrowserSettings): string {
-  switch (s.contentProxyPreset) {
-    case 'jondo':
-      return (s.jondoProxyUrl.trim() || JONDO_DEFAULT_HTTP)
-    case 'tor':
-    case 'custom':
-      return (s.torProxyUrl.trim() || 'socks5://127.0.0.1:9050')
-    default:
-      return s.torProxyUrl.trim() || 'socks5://127.0.0.1:9050'
-  }
-}
-
-function migrateLegacyContentProxy(p: Partial<BrowserSettings> & { useProxyForContent?: boolean }): {
-  preset: ContentProxyPreset
-  jondoUrl: string
-} {
-  if (
-    typeof p.contentProxyPreset === 'string' &&
-    ['off', 'tor', 'jondo', 'custom'].includes(p.contentProxyPreset)
-  ) {
-    return {
-      preset: p.contentProxyPreset as ContentProxyPreset,
-      jondoUrl:
-        typeof p.jondoProxyUrl === 'string' && p.jondoProxyUrl.trim()
-          ? p.jondoProxyUrl.trim()
-          : JONDO_DEFAULT_HTTP,
-    }
-  }
-  if (!p.useProxyForContent) {
-    return { preset: 'off', jondoUrl: JONDO_DEFAULT_HTTP }
-  }
-  const u = (p.torProxyUrl || '').trim().toLowerCase()
-  if (u.startsWith('socks')) return { preset: 'tor', jondoUrl: JONDO_DEFAULT_HTTP }
-  if (u.startsWith('http')) {
-    const legacyHttp = (p.torProxyUrl || '').trim()
-    if (u.includes(':4001') || u.includes('jondo') || u.includes('jap')) {
-      return { preset: 'jondo', jondoUrl: legacyHttp || JONDO_DEFAULT_HTTP }
-    }
-    return { preset: 'custom', jondoUrl: JONDO_DEFAULT_HTTP }
-  }
-  return { preset: 'custom', jondoUrl: JONDO_DEFAULT_HTTP }
-}
-
-export type FetchBridgeResult = {
-  body: string
-  status: number
-  contentType: string
-  finalUrl: string
-  byteLength: number
-}
-
-const LS_SETTINGS = 'holobro-browser-settings'
-const LS_SETTINGS_LEGACY = 'hab-browser-settings'
+export type { BrowserSettings, ContentProxyPreset, FetchBridgeResult }
+export {
+  JONDO_DEFAULT_HTTP,
+  effectiveContentProxyUrl,
+  isContentProxyActive,
+  loadBrowserSettings,
+  saveBrowserSettings,
+} from './browserSettings'
 
 const ZOOM_PRESETS = [0.5, 0.67, 0.75, 0.8, 0.9, 1, 1.1, 1.25, 1.5, 1.75, 2] as const
 
@@ -107,71 +32,6 @@ function zoomPercentOptions(currentZoom: number): number[] {
     list.sort((a, b) => a - b)
   }
   return list
-}
-
-export function loadBrowserSettings(): BrowserSettings {
-  try {
-    const raw =
-      localStorage.getItem(LS_SETTINGS) ?? localStorage.getItem(LS_SETTINGS_LEGACY)
-    if (!raw) {
-      return {
-        zoom: 1,
-        torProxyUrl: 'socks5://127.0.0.1:9050',
-        jondoProxyUrl: JONDO_DEFAULT_HTTP,
-        contentProxyPreset: 'off',
-        useProxyForFetch: false,
-        fetchTimeoutSecs: 45,
-        fetchMaxKb: 2048,
-        stealthUserAgent: true,
-        privacyHardenContent: true,
-        blockAdsContent: true,
-        blockScriptsContent: false,
-        contentIncognito: true,
-      }
-    }
-    const p = JSON.parse(raw) as Partial<BrowserSettings> & { useProxyForContent?: boolean }
-    const { preset: contentProxyPreset, jondoUrl: migratedJondo } = migrateLegacyContentProxy(p)
-    return {
-      zoom: typeof p.zoom === 'number' ? Math.min(2, Math.max(0.5, p.zoom)) : 1,
-      torProxyUrl: typeof p.torProxyUrl === 'string' ? p.torProxyUrl : 'socks5://127.0.0.1:9050',
-      jondoProxyUrl:
-        typeof p.jondoProxyUrl === 'string' && p.jondoProxyUrl.trim()
-          ? p.jondoProxyUrl.trim()
-          : migratedJondo,
-      contentProxyPreset,
-      useProxyForFetch: Boolean(p.useProxyForFetch),
-      fetchTimeoutSecs:
-        typeof p.fetchTimeoutSecs === 'number'
-          ? Math.min(600, Math.max(5, Math.round(p.fetchTimeoutSecs)))
-          : 45,
-      fetchMaxKb:
-        typeof p.fetchMaxKb === 'number' ? Math.min(2048, Math.max(16, Math.round(p.fetchMaxKb))) : 2048,
-      stealthUserAgent: typeof p.stealthUserAgent === 'boolean' ? p.stealthUserAgent : true,
-      privacyHardenContent: typeof p.privacyHardenContent === 'boolean' ? p.privacyHardenContent : true,
-      blockAdsContent: typeof p.blockAdsContent === 'boolean' ? p.blockAdsContent : true,
-      blockScriptsContent: typeof p.blockScriptsContent === 'boolean' ? p.blockScriptsContent : false,
-      contentIncognito: typeof p.contentIncognito === 'boolean' ? p.contentIncognito : true,
-    }
-  } catch {
-    return {
-      zoom: 1,
-      torProxyUrl: 'socks5://127.0.0.1:9050',
-      jondoProxyUrl: JONDO_DEFAULT_HTTP,
-      contentProxyPreset: 'off',
-      useProxyForFetch: false,
-      fetchTimeoutSecs: 45,
-      fetchMaxKb: 2048,
-      stealthUserAgent: true,
-      privacyHardenContent: true,
-      blockAdsContent: true,
-      blockScriptsContent: false,
-      contentIncognito: true,
-    }
-  }
-}
-
-export function saveBrowserSettings(s: BrowserSettings) {
-  localStorage.setItem(LS_SETTINGS, JSON.stringify(s))
 }
 
 function normalizeUrl(raw: string): string {

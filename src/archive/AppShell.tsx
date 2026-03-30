@@ -1,15 +1,16 @@
+// @ts-nocheck — ARCHIVED: This is the original monolithic AppShell, superseded by App.tsx + HolochainProvider.
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { encodeHashToBase64, type ActionHash, type AppWebsocket } from '@holochain/client'
-import { invoke } from '@tauri-apps/api/core'
+import { safeInvoke as invoke } from '../lib/tauri'
 import { tryConnectHolo } from '../holochainConnect'
+import { BrowserPanel } from '../browser/BrowserPanel'
 import {
-  BrowserPanel,
   effectiveContentProxyUrl,
   isContentProxyActive,
   loadBrowserSettings,
   type BrowserSettings,
   type FetchBridgeResult,
-} from '../browser/BrowserPanel'
+} from '../browser/browserSettings'
 import {
   hcCreateBookmark,
   hcCreateContact,

@@ -21,6 +21,6 @@ export const P2PLibraryPanel = lazy(async () => {
   return { default: m.P2PLibraryPanel }
 })
 export const AgentHubPanel = lazy(async () => {
-  const m = await import('../mockup/AgentHub')
+  const m = await import('../design-panels/AgentHub')
   return { default: m.AgentHubPanel }
 })
